@@ -1,0 +1,296 @@
+"Shop"
+{
+	"Bread"
+	{
+		"Type"		"Item"
+		"Price"		"40"
+		"Category" 	"Sandvich Making"
+		"Job_Reqs"
+		{
+			"1" "Sandvich Maker"
+		}
+	}
+	"Cheese"
+	{
+		"Type"		"Item"
+		"Price"		"35"
+		"Category" 	"Sandvich Making"
+		"Job_Reqs"
+		{
+			"1" "Sandvich Maker"
+		}
+	}
+	"Lettuce"
+	{
+		"Type"		"Item"
+		"Price"		"35"
+		"Category"	"Sandvich Making"
+		"Job_Reqs"
+		{
+			"1" "Sandvich Maker"
+		}
+	}
+	"Meat"
+	{
+		"Type"		"Item"
+		"Price"		"50"
+		"Category"	"Sandvich Making"
+		"Job_Reqs"
+		{
+			"1" "Sandvich Maker"
+		}
+	}
+	"Sandvich Table"
+	{
+		"Type"		"ent"
+		"Model"		"models/props_spytech/work_table001.mdl"
+		"Price"		"500"
+		"Category"	"Sandvich Making"
+		"Job_Reqs"
+		{
+			"1" "Sandvich Maker"
+		}
+	}
+	"Australium Drill"
+	{
+		"Type"		"ent"
+		"Model"		"models/props_hydro/water_machinery3.mdl"
+		"Price"		"1500"
+		"Category"	"Australium Mining"
+		"Job_Reqs"	
+		{
+			"1" "Australium Miner"
+		}
+	}
+	"Fuel"
+	{
+		"Type"		"Item"
+		"Price"		"500"
+		"Category"	"Australium Mining"
+		"Job_Reqs"	
+		{
+			"1" "Australium Miner"
+		}
+	}
+	"Australium Cleaner"
+	{
+		"Type"		"ent"
+		"Model"		"models/props_hydro/water_barrel.mdl"
+		"Price"		"1000"
+		"Category"	"Australium Mining"
+		"Job_Reqs"	
+		{
+			"1" "Australium Miner"
+		}
+	}
+	"Empty Package"
+	{
+		"Type"		"ent"
+		"Model"		"models/props_forest/milk_crate.mdl"
+		"Price"		"75"
+		"Category"	"Australium Mining"
+		"Job_Reqs"	
+		{
+			"1" "Australium Miner"
+		}
+	}
+	"Australium"
+	{
+		"Type"		"Item"
+		"Job_Reqs"	
+		{
+			"1" "Australium Miner"
+		}
+		"Unlisted"	"true"
+	}
+	"Dirty Australium"
+	{
+		"Type"		"Item"
+		"Job_Reqs"
+		{
+			"1" "Australium Miner"
+		}
+		"Unlisted"	"true"
+	}
+	"Radio"
+	{
+		"Type"		"ent"
+		"Model"		"models/props_lab/citizenradio.mdl"
+		"Physics"	"true"
+		"Price"		"250"
+		"Category"	"General"
+		"Job_Reqs"
+		{
+			"1" "any"
+		}
+	}
+	"Full Australium Package"
+	{
+		"Type"		"Item"
+		"Unlisted"	"true"
+		"Job_Reqs"	
+		{
+			"1" "any"
+		}
+	}
+	"Sandvich"
+	{
+		"Type"		"Item"
+		"Unlisted"	"true"
+		"Job_Reqs"
+		{
+			"1"	"Sandvich Maker"
+		}
+	}
+	"Pistol"
+	{
+		"Price"		"500"
+		"Type"		"weapon"
+		"id"		"22"
+		"Job_Reqs"
+		{
+			"1"	"any"
+		}
+		"Category"	"Weapons"
+	}
+	"Lockpick"
+	{
+		"Price"		"500"
+		"Type"		"Item"
+		"Job_Reqs"
+		{
+			"1"	"Thief"
+		}
+		"Category"	"Black Market"
+	}
+	"Shotgun"
+	{
+		"Price"		"2500"
+		"Type"		"weapon"
+		"id"		"10"
+		"Job_Reqs"
+		{
+			"1"	"any"
+		}
+		"Category"	"Weapons"
+	}
+	"Bronze Money Printer"
+	{
+		"Price" 	"750"
+		"IsPrinter"	"true"
+		"Type"		"ent"
+		"Model"		"models/props_c17/consolebox01a.mdl"
+		"Color"		"181,92:29"
+		"Category"	"Printers"
+		"Physics"	"true"
+	}
+	"Silver Money Printer"
+	{
+		"Price"		"1500"
+		"IsPrinter"	"true"
+		"Type"		"ent"
+		"Model"		"models/props_c17/consolebox01a.mdl"
+		"Color"		"191,191:191"
+		"Category"	"Printers"
+		"Physics"	"true"
+	}
+	"Gold Money Printer"
+	{
+		"Price"		"2500"
+		"IsPrinter"	"true"
+		"Type"		"ent"
+		"Model"		"models/props_c17/consolebox01a.mdl"
+		"Color"		"227,212:0"
+		"Category"	"Printers"
+		"Physics"	"true"
+	}
+	"Medium Medkit"
+	{
+		"Price"		"250"
+		"Type"		"item"
+		"Category"	"Health & Ammo"
+		"Job_Reqs"
+		{
+			"1" "any"
+		}
+		"Medkit"	"true"
+		"HKSize"	"2"
+	}
+	"Medium Ammopack"
+	{
+		"Price"		"250"
+		"Type"		"item"
+		"Category"	"Health & Ammo"
+		"Job_Reqs"
+		{
+			"1" "any"
+		}
+		"Ammopack"	"true"
+		"APSize"	"2"
+	}
+	"Blackjack Table"
+	{
+		"Price"		"500"
+		"Type"		"ent"
+		"Category"	"Casino"
+		"Job_Reqs"
+		{
+			"1"	"Casino Owner"
+		}
+		"Model" "models/props_spytech/work_table001.mdl"
+	
+	}
+	"Dough"
+	{
+		"Price"		"300"
+		"Type"		"item"
+		"Category"	"Baking"
+		"Job_Reqs"
+		{
+			"1"		"Baker"
+		}
+	}
+	"Oven"
+	{
+		"Price"		"1000"
+		"Type"		"ent"
+		"Category"	"Baking"
+		"Model"		"models/props_wasteland/kitchen_stove002a.mdl"
+		"Job_Reqs"
+		{
+			"1"		"Baker"
+		}
+	}
+	"Plain Loaf"
+	{
+		"Type"		"ent"
+		"Unlisted"	"true"
+		"Model"		"models/weapons/c_models/c_bread/c_bread_plainloaf.mdl"
+		"Job_Reqs"
+		{
+			"1"		"Baker"
+		}
+	}
+	"CCTV Terminal"
+	{
+		"Type"	"ent"
+		"Price"	"0"
+		"Category"	"General"
+		"Model"	"models/props_spytech/computer_low.mdl"
+		"Job_Reqs"
+		{
+			"1"	"any"
+		}
+	}
+	"CCTV Camera"
+	{
+		"Type"	"ent"
+		"Price"	"0"
+		"Category"	"General"
+		"Model"	"models/props_spytech/security_camera.mdl"
+		"Job_Reqs"
+		{
+			"1"	"any"
+		}
+	}
+}
