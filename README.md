@@ -7,7 +7,7 @@ Edit and add this in database.cfg
 {
 	"driver"			"default"
 	"host"				"HOST"
-	"database"		"DATABASE"
+	"database"			"DATABASE"
 	"user"				"USER"
 	"pass"				"PASSWORD"
 }
