@@ -2,6 +2,7 @@
 A roleplay mod for TF2
 
 Edit and add this in database.cfg
+```cpp
 "tfrp"
 {
 	"driver"			"default"
@@ -10,3 +11,4 @@ Edit and add this in database.cfg
 	"user"				"USER"
 	"pass"				"PASSWORD"
 }
+```
