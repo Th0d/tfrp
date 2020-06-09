@@ -1,3 +1,9 @@
+#define PLUGIN_NAME 		"TF2 Roleplay Mod"
+#define PLUGIN_AUTHOR 		"Thod (SQL by The Illusion Squid)"
+#define PLUGIN_DESCRIPTION 	"Roleplay mod for TF2"
+#define PLUGIN_VERSION 		"1.1-sql"
+#define PLUGIN_URL 			"https://github.com/Th0d/tfrp"
+
 #include <sourcemod>
 #include <tf2attributes>
 #include <tf2items>
@@ -34,12 +40,70 @@
 #define MASK_PROP_SPAWN		(CONTENTS_SOLID|CONTENTS_WINDOW|CONTENTS_GRATE)
 #define MAX_SPAWN_DISTANCE		256
 
+#define MAX_QUERY_SIZE	2048 //Yup needed this magic number -Squid
+#define DB_PRIO DBPrio_Normal
+
+enum
+{
+	AnnounceJobSwitch,
+	Prefix,
+	Debug,
+	SQLDebug,
+	Version
+}
+
+ConVar cvarTFRP[Version + 1];
+
+///////////
+//  SQL  //
+///////////
+char sUserInfoTable[32]; //Stores info
+char sUserInvTable[32]; //Stores items
+
+//Initial
+char sQuery_CreateTable_UserInfo[] = "CREATE TABLE IF NOT EXISTS %s (`auth` VARCHAR(32) NOT NULL, `name` TEXT NOT NULL, `cash` INT(16) NOT NULL, `join_date` BIGINT(11) NOT NULL, `playtime` BIGINT(11) NOT NULL, `last_update` BIGINT(11) NOT NULL, PRIMARY KEY (`auth`));";
+char sQuery_CreateTable_UserInventory[] = "CREATE TABLE IF NOT EXISTS %s (`auth` VARCHAR(32) NOT NULL, `item_id` VARCHAR(32) NULL DEFAULT NULL, `item_count` INT(11) NOT NULL DEFAULT 0);";
+// Get info
+char sQuery_GetUserinfo[] = "SELECT * FROM %s WHERE auth = '%s';";
+// char sQuery_GetUserCash[] = "SELECT cash FROM %s WHERE auth = '%s';";
+char sQuery_GetUserItem[] = "SELECT item_count FROM %s WHERE auth = '%s' AND item_id = '%s';";
+char sQuery_GetUserItems[] = "SELECT item_id, item_count FROM %s WHERE auth = '%s';";
+//Update info
+char sQuery_UpdateUserCash[] = "UPDATE %s SET `cash` = %d, `last_update` = %d WHERE auth = '%s';";
+char sQuery_UpdateUserInfoFull[] = "UPDATE %s SET `name` = '%s', `cash` = %d, `playtime` = %d, `last_update` = %d WHERE auth = '%s';";
+char sQuery_UpdateUserItem[] = "UPDATE %s SET `item_count` = item_count + %d WHERE auth = '%s' AND item_id = '%s';";
+char sQuery_InsertUserItem[] = "INSERT INTO  %s (auth, item_id, item_count) VALUES ('%s', '%s', %d);";
+//Register
+char sQuery_RegisterNewUserInfo[] = "INSERT INTO %s (auth, name, cash, join_date, playtime, last_update) VALUES ('%s', '%s', %d, %d, %i, %d);";
+
+Handle g_hSQL;
+
+/////////////
+//  Cache  //
+/////////////
+
+enum struct UserData
+{
+	int iCash;
+	int iPlayTime;
+	int iJoinTime; 	//Timestamp of join event
+	int iLogTime; 	//Timestamp of last playtime update
+	char sJob[32]; 	//Job name
+	int iJobSalary;
+	bool bIsGov;
+	bool bArrested;
+	bool bBuyDoors;
+	bool bHasWarrent;
+}
+UserData UD[MAXPLAYERS + 1]; 
+//Much cleaner way of storing user data then all separate variables -Squid
+
+Handle hItemArray[MAXPLAYERS + 1]; //Contains the inv of a client
 
 // TFRP Hooks
 GlobalForward g_tfrp_forwards[128];
 
 // File Strings
-static char KVPath[PLATFORM_MAX_PATH];
 static char ShopPath[PLATFORM_MAX_PATH];
 static char ConfPath[PLATFORM_MAX_PATH];
 static char JobPath[PLATFORM_MAX_PATH];
@@ -109,8 +173,6 @@ static char Job[MAXPLAYERS + 1][255];
 static char CanOwnDoors[MAXPLAYERS + 1][255];
 static DroppedItems[MAXPLAYERS + 1] = {0,...};
 // static Crime[MAXPLAYERS + 1] = {0,...};
-static Cash[MAXPLAYERS + 1] = {0,...};
-static JobSalary[MAXPLAYERS + 1] = {4,...};
 static IsGov[MAXPLAYERS + 1] = {false,...};
 static char droppedItemsString[2048][255];
 static char JailCells[10][255]; // Max 10 jail cells
@@ -170,9 +232,6 @@ Handle g_FfEnabled = INVALID_HANDLE;
 Handle autoBalance = INVALID_HANDLE;
 ConVar hEngineConVar;
 
-// Convars
-ConVar hCvar_AnnounceJobSwitch;
-
 //////////////
 // Natives //
 /////////////
@@ -221,7 +280,7 @@ public int Native_RemoveItem(Handle plugin, int numParams)
 	char item[32];
 	GetNativeString(2, item, sizeof(item));
 	int amount = GetNativeCell(3);
-	RemItem(client, item, amount);
+	GiveItem(client, item, -amount); //Maybe remove this function entirely? -Squid
 	return 0;
 }
 
@@ -230,7 +289,7 @@ public int Native_GetCash(Handle plugin, int numParams)
 	int client = GetNativeCell(1);
 	if(client > 0 && IsClientInGame(client))
 	{
-		return Cash[client];
+		return UD[client].iCash;
 	}else{
 		return 0;
 	}
@@ -262,11 +321,11 @@ public int Native_GetEntOwner(Handle plugin, int numParams)
 
 public Plugin myinfo =
 {
-	name = "TF2 Roleplay Mod",
-	author = "Thod",
-	description = "Roleplay mod for TF2",
-	version = "1.0",
-	url = "http://www.sourcemod.net/"
+	name = PLUGIN_NAME,
+	author = PLUGIN_AUTHOR,
+	description = PLUGIN_DESCRIPTION,
+	version = PLUGIN_VERSION,
+	url = PLUGIN_URL
 };
  
 public void OnPluginStart()
@@ -275,10 +334,6 @@ public void OnPluginStart()
 	/////////////////
 	// Build Path //
 	////////////////
-
-	// Build path for saving players' data
-	CreateDirectory("addons/sourcemod/configs/tfrp/info", 3);
-	BuildPath(Path_SM, KVPath, sizeof(KVPath), "configs/tfrp/info/playerinfo.txt");
 
 	// Build path for shop
 	CreateDirectory("addons/sourcemod/configs/tfrp/cfg", 3);
@@ -376,8 +431,12 @@ public void OnPluginStart()
 	// Convars //
 	/////////////
 	
-	hCvar_AnnounceJobSwitch = CreateConVar("tfrp_announce_job_switch", "1", "Enables/Disables announcing to all players when a player switches their job. (0 = disable)", FCVAR_NOTIFY);
-
+	cvarTFRP[Version] = CreateConVar("sm_tfrp_version", PLUGIN_VERSION, PLUGIN_NAME, FCVAR_REPLICATED | FCVAR_NOTIFY | FCVAR_SPONLY | FCVAR_DONTRECORD);
+	cvarTFRP[AnnounceJobSwitch] = CreateConVar("tfrp_announce_job_switch", "1", "Enables/Disables announcing to all players when a player switches their job. (0 = disable)", FCVAR_NOTIFY);
+	cvarTFRP[Prefix] = CreateConVar("sm_tfrp_tableprefix", "tfrp", "Prefix for database tables. (Can be blank, however it is not recommended)", FCVAR_NOTIFY);
+	//You're welcome to those who only have one SQL database -The Illusion Squid
+	cvarTFRP[SQLDebug] = CreateConVar("sm_tfrp_sqldebug", "0", "Enables console debugging for TFRP SQL.", FCVAR_NOTIFY);
+	cvarTFRP[Debug] = CreateConVar("sm_tfrp_debug", "0", "Enables console debugging for TFRP General stuff.", FCVAR_NOTIFY);
 
 	////////////////////////
 	// Register Commands //
@@ -402,6 +461,7 @@ public void OnPluginStart()
 	// Inv cmds
 	RegConsoleCmd("sm_items", Command_INVENTORY);
 	RegConsoleCmd("sm_inventory", Command_INVENTORY);
+	RegConsoleCmd("sm_inv", Command_INVENTORY);
 
 	// Bal cmds
 	RegConsoleCmd("sm_cash", Command_BAL);
@@ -461,6 +521,252 @@ public void OnPluginStart()
 	RegAdminCmd("sm_addgovdoor", Command_AddGovDoor, ADMFLAG_BAN);
 	RegAdminCmd("sm_deletegovdoor", Command_RemGovDoor, ADMFLAG_BAN);
 
+	ConnectSQL();
+}
+
+public void ConnectSQL()
+{
+	SQL_TConnect(SQLCall_ConnectToDatabase, "tfrp"); //Get's sql credentials from database.cfg. Pretty standard
+}
+
+public void StripToMelee(int client) //Thanks to JB Redux (Scag, Drixvel and Nergal/Assyrian)
+	{
+	TF2_RemoveWeaponSlot(client, 0);
+	TF2_RemoveWeaponSlot(client, 1);
+	TF2_RemoveWeaponSlot(client, 3);
+	TF2_RemoveWeaponSlot(client, 4);
+	TF2_RemoveWeaponSlot(client, 5);
+	//TF2_SwitchToSlot(client, TFWeaponSlot_Melee);
+
+	char sClassName[64];
+	int wep = GetPlayerWeaponSlot(client, TFWeaponSlot_Melee);
+	if (wep > MaxClients && IsValidEdict(wep) && GetEdictClassname(wep, sClassName, sizeof(sClassName)))
+		SetEntPropEnt(client, Prop_Send, "m_hActiveWeapon", wep);
+}
+
+void SQLCall_ConnectToDatabase(Handle owner, Handle hndl, const char[] error, any data)
+{
+	if (hndl == null)
+	{
+		LogError("Connection to the server failed with error %s.", error);
+		PrintToServer("[TFRP] Connection to SQL database has failed! Error: %s", error);
+		SetFailState("[TFRP] Connection to the database failed. Check log for more information. %s", PLUGIN_VERSION);
+		return;
+	}
+
+	g_hSQL = hndl;
+
+	if (g_hSQL == null) //This should be unreachable tho
+	{
+		LogError("Connection to the server failed with error %s.", error);
+		PrintToServer("[TFRP] Connection to SQL database has failed! Error: %s", error);
+		SetFailState("[TFRP] Connection to the database failed. Check log for more information. %s", PLUGIN_VERSION);
+		return;
+	}
+
+	char prefix[16];
+	cvarTFRP[Prefix].GetString(prefix, sizeof(prefix));
+	if (prefix[0] != '\0')
+		StrCat(prefix, 16, "_");
+	//To keep the table names nice and clean. Default cvar will result in tfrp_user_info
+	Format(sUserInfoTable, sizeof(sUserInfoTable), "%suser_info", prefix);
+	Format(sUserInvTable, sizeof(sUserInvTable), "%suser_inventory", prefix);
+
+	Transaction trans = SQL_CreateTransaction();
+
+	char sQuery[MAX_QUERY_SIZE];
+
+	Format(sQuery, sizeof(sQuery), sQuery_CreateTable_UserInfo, sUserInfoTable);
+	SQL_AddQuery(trans, sQuery);
+
+	Format(sQuery, sizeof(sQuery), sQuery_CreateTable_UserInventory, sUserInvTable);
+	SQL_AddQuery(trans, sQuery);
+
+	SQL_ExecuteTransaction(g_hSQL, trans, SQL_Transaction_Success, SQL_Transaction_Failure, _, DB_PRIO);
+
+	PrintToServer("[TFRP] Successfully connected to database!");
+}
+
+void SQL_Transaction_Success(Handle db, DataPack data, int numQueries, Handle[] results, any[] queryData)
+{
+	if (cvarTFRP[SQLDebug].BoolValue)
+		LogMessage("[TFRP] Successfully created and executed transaction with %d queries.", numQueries);
+}
+void SQL_Transaction_Failure(Handle db, DataPack data, int numQueries, const char[] error, int failIndex, any[] queryData)
+{
+	LogError("[TFRP] Could not complete transaction. Index %d: %s", failIndex, error);
+	SetFailState("[TFRP] Failed transaction Initialization. Exiting...");
+}
+
+void RegisterNewUser(int iClient, int iCash = 0, int iPlayTime = 0)
+{
+	char sQuery[MAX_QUERY_SIZE],
+		sAuth[32],
+		sName[2 * MAX_NAME_LENGTH + 1],
+		safeName[2 * MAX_NAME_LENGTH + 1];
+	int iTS = GetTime();
+	GetClientAuthId(iClient, AuthId_Steam2, sAuth, sizeof(sAuth));
+	GetClientName(iClient, sName, sizeof(sName));
+	SQL_EscapeString(g_hSQL, sName, safeName, sizeof(safeName)); //For heavens sake don't forget this
+
+	//Let's also cache the new user
+	UD[iClient].iCash = iCash;
+	UD[iClient].iPlayTime = iPlayTime;
+	UD[iClient].iJoinTime = iTS;
+	UD[iClient].iLogTime = iTS;
+
+	Transaction trans = SQL_CreateTransaction(); 
+	//Made this a txn for updatable reasons.
+
+	Format(sQuery, sizeof(sQuery), 
+		sQuery_RegisterNewUserInfo, 
+		sUserInfoTable, 
+		sAuth,
+		safeName,
+		iCash,
+		iTS,
+		iPlayTime,
+		iTS
+	);
+
+	if (cvarTFRP[SQLDebug].BoolValue)
+		PrintToServer("[TFRP] RegisterNewUserInfo query: %s", sQuery);
+	
+	SQL_AddQuery(trans, sQuery);
+
+	SQL_ExecuteTransaction(g_hSQL, trans, SQL_Transaction_Success, SQL_Transaction_Failure, _, DB_PRIO);
+}
+
+void GetUserInfo(int iClient) //Stores user info inside cache and registers new users
+{
+	char sQuery[MAX_QUERY_SIZE],
+		sAuth[32];
+	GetClientAuthId(iClient, AuthId_Steam2, sAuth, sizeof(sAuth));
+
+	Handle hPack = CreateDataPack();
+	WritePackCell(hPack, iClient);
+
+	Format(sQuery, sizeof(sQuery), 
+		sQuery_GetUserinfo, 
+		sUserInfoTable, 
+		sAuth
+	);
+
+	if (cvarTFRP[SQLDebug].BoolValue)
+		PrintToServer("GetUserInfo query: %s", sQuery);
+
+	SQL_TQuery(g_hSQL, SQLCall_GetUserInfo, sQuery, hPack);
+}
+
+void SQLCall_GetUserInfo(Handle owner, Handle hndl, const char[] error, any data)
+{
+	if (hndl == INVALID_HANDLE)
+    {
+		CloseHandle(data);
+		LogError("[TFRP] Failed to run GetUserInfo query: %s", error);
+		PrintToServer("[TFRP] Failed to run GetUserInfo query: %s", error);
+		return;
+    }
+	//Get client index
+	ResetPack(data);
+	int iClient = ReadPackCell(data);
+	CloseHandle(data);
+	
+	if (SQL_GetRowCount(hndl) <= 0)
+	{
+		RegisterNewUser(iClient);
+		return;
+	}
+	
+	while (SQL_FetchRow(hndl)) //Should loop once. But if for some reason there is a dublicate (imposible) it will overwrite anyways.
+	{
+		UD[iClient].iCash = SQL_FetchInt(hndl, 2);
+		UD[iClient].iPlayTime = SQL_FetchInt(hndl, 4);
+	}
+	UD[iClient].iJoinTime = GetTime();
+	UD[iClient].iLogTime = GetTime();
+}
+
+void UpdateCash(int iClient)
+{
+	// UpdateCash should be called everytime the plugin changes a client's cash.
+	// This helps prevent players from losing money if the server crashes.
+
+	char sQuery[MAX_QUERY_SIZE],
+		sAuth[32];
+	int iTS = GetTime();
+	GetClientAuthId(iClient, AuthId_Steam2, sAuth, sizeof(sAuth));
+	
+	Format(sQuery, sizeof(sQuery), 
+		sQuery_UpdateUserCash, 
+		sUserInfoTable, 
+		UD[iClient].iCash, 
+		iTS, 
+		sAuth
+	);
+	
+	if (cvarTFRP[SQLDebug].BoolValue)
+		PrintToServer("[TFRP] UpdateCash query: %s", sQuery);
+
+	SQL_TQuery(g_hSQL, SQLCall_UpdateUserCash, sQuery);
+}
+
+void SQLCall_UpdateUserCash(Handle owner, Handle hndl, const char[] error, any data)
+{
+	if (hndl == INVALID_HANDLE)
+    {
+		LogError("[TFRP] Failed to run UpdateUserCash query: %s", error);
+		PrintToServer("[TFRP] Failed to run UpdateUserCash query: %s", error);
+		return;
+    }
+}
+
+int GetPlayTime(int iClient)
+{
+	int iTotalPlayTime = ((GetTime()-UD[iClient].iLogTime) + UD[iClient].iPlayTime);
+	return iTotalPlayTime;
+}
+
+void UpdatePlayTime(int iClient)
+{
+	UD[iClient].iPlayTime = GetPlayTime(iClient);
+	//I know this is a one line function. But I might add a query here later on.
+	//This was the easiest option. -Squid
+}
+
+void UpdateUserInfoFull(int iClient)
+{
+	if(IsFakeClient(iClient)) //Don't need to save bots
+		return;
+
+	char sQuery[MAX_QUERY_SIZE],
+		sAuth[32],
+		sName[2 * MAX_NAME_LENGTH + 1],
+		safeName[2 * MAX_NAME_LENGTH + 1];
+	int iTS = GetTime();
+	GetClientAuthId(iClient, AuthId_Steam2, sAuth, sizeof(sAuth));
+	GetClientName(iClient, sName, sizeof(sName));
+	SQL_EscapeString(g_hSQL, sName, safeName, sizeof(safeName));
+
+	Transaction trans = SQL_CreateTransaction();
+	//tnx for if I ever need to also finalize the inventory.
+	
+	Format(sQuery, sizeof(sQuery), 
+		sQuery_UpdateUserInfoFull, 
+		sUserInfoTable, 
+		safeName,
+		UD[iClient].iCash, 
+		GetPlayTime(iClient),
+		iTS, 
+		sAuth
+	);
+
+	if (cvarTFRP[SQLDebug].BoolValue)
+		PrintToServer("[TFRP] UpdateUserInfoFull query: %s", sQuery);
+
+	SQL_AddQuery(trans, sQuery);
+
+	SQL_ExecuteTransaction(g_hSQL, trans, SQL_Transaction_Success, SQL_Transaction_Failure, _, DB_PRIO);
 }
 
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
@@ -476,12 +782,23 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 	return APLRes_Success;
 }
 
+public void OnClientAuthorized(int iClient, const char[] sAuth)
+{
+	if(IsFakeClient(iClient))
+		return;
+
+	GetUserInfo(iClient); //Cashes some stuff
+}
+
 public void OnClientPutInServer(int client)
 {
 	// Load player's info when they connect and set their job to default.
-	LoadPlayerInfo(client);
+	UD[client].sJob = StartJob; //This was not yet converting fully. -Squid
+	UD[client].iJobSalary = 50;
+	UD[client].bIsGov = false;
+	
 	Job[client] = StartJob;
-	JobSalary[client] =	50; // Will make a config file for jobs that includes salaries
+	// Will make a config file for jobs that includes salaries
 	IsGov[client] = false;
 
 	// Team collision
@@ -558,6 +875,7 @@ public void OnClientDisconnect(int client)
 {
 	// Save player's info when they disconnect
 	SavePlayerInfo(client);
+	UpdateUserInfoFull(client);
 	
 }
 
@@ -661,7 +979,7 @@ public void LoadConfig(bool confreload)
 			STableIngredients[i][1] = 0;
 			STableIngredients[i][2] = 0;
 			STableIngredients[i][3] = 0;
-			
+
 			if(i <= MAXPLAYERS)
 			{
 				PrintersOwned[i][0] = 0;
@@ -693,7 +1011,8 @@ public Action OnPlayerDeath(Handle event, char[] name, bool dontBroadcast)
 		char GetKilledPlayerName[MAX_NAME_LENGTH];
 		GetClientName(victim, GetKilledPlayerName, sizeof(GetKilledPlayerName));
 		
-		Cash[attacker] = Cash[attacker] + HitPrice;
+		UD[attacker].iCash += HitPrice;
+		UpdateCash(attacker);
 		
 		CPrintToChatAll("{yellow}[TFRP ADVERT]{default} The hit on %s has been completed", GetKilledPlayerName);
 
@@ -717,13 +1036,11 @@ public Action onSwitchTeam(int client, char[] command, int argc)
 	return Plugin_Handled;
 }
 
-
-
 // Disabling control points as this is an rp mod
 // Also disables the timer for infinite round time
 // I guess this isn't needed anymore, but I'll keep it for now just in case
 // I used to use cp_junction as a test map and that's why I implemented this
-
+ 
 public Action Event_Roundstart(Handle event, const char[] name, bool dontBroadcast)
 {
 
@@ -761,65 +1078,14 @@ public Action Event_Roundstart(Handle event, const char[] name, bool dontBroadca
 // Money related //
 ///////////////////
 
-public void LoadPlayerInfo(int client)
+public void SavePlayerInfo(int client) //Maybe rename this function? -Squid
 {
-	Handle DB = CreateKeyValues("PlayerInfo");
-	FileToKeyValues(DB, KVPath);
-
-	char SID[32];
-	GetClientAuthId(client, AuthId_Steam2, SID, sizeof(SID));
-
-	if(KvJumpToKey(DB, SID, true))
-	{
-		char name[MAX_NAME_LENGTH];
-		char temp_name[MAX_NAME_LENGTH];
-		GetClientName(client, name, sizeof(name));
-
-		KvGetString(DB, "Name", temp_name, sizeof(temp_name), "NULL");
-		KvSetString(DB, "Name", name);
-		int saveMoney = KvGetNum(DB, "Money", StartCash);
-		Cash[client] = saveMoney;
-
-		KvRewind(DB);
-		KeyValuesToFile(DB, KVPath);
-		CloseHandle(DB);
-
-	}
-}
-
-public void SavePlayerInfo(int client)
-{
-	Handle DB = CreateKeyValues("PlayerInfo");
-	FileToKeyValues(DB, KVPath);
-
-	char SID[32];
-	GetClientAuthId(client, AuthId_Steam2, SID, sizeof(SID));
-
-	if(KvJumpToKey(DB, SID, true))
-	{
-		
-		char name[MAX_NAME_LENGTH];
-		char temp_name[MAX_NAME_LENGTH];
-		GetClientName(client, name, sizeof(name));
-
-		KvGetString(DB, "Name", temp_name, sizeof(temp_name), "NULL");
-		KvSetString(DB, "Name", name);
-		KvSetNum(DB, "Money", Cash[client]);
-
-		KvRewind(DB);
-		KeyValuesToFile(DB, KVPath);
-		CloseHandle(DB);
-
-	}
-	
 	// Reset arrays
 	
 	AusDrillsOwned[client] = 0;
 	AusCleanersOwned[client] = 0;
 	AusPacksOwned[client] = 0;
 	
-	Cash[client] = 0;
-	JobSalary[client] = 4;
 	IsGov[client] = false;
 	isArrested[client] = false;
 	DoorOwnedAmt[client] = 0;
@@ -833,7 +1099,6 @@ public void SavePlayerInfo(int client)
 	PrintersOwned[client][0] = 0;
 	PrintersOwned[client][1] = 0;
 	PrintersOwned[client][2] = 0;
-	
 	
 	for(int i = 0; i <= 2047; i++)
 	{
@@ -867,39 +1132,6 @@ public void SavePlayerInfo(int client)
 	
 }
 
-public void SaveCash(int client)
-{
-	
-	// SaveCash should be called eveytime the plugin changes a client's cash.
-	// This helps prevent players from losing money if the server crashes.
-	
-	if(!IsClientInGame(client)) return;
-	
-	Handle DB = CreateKeyValues("PlayerInfo");
-	FileToKeyValues(DB, KVPath);
-
-	char SID[32];
-	GetClientAuthId(client, AuthId_Steam2, SID, sizeof(SID));
-
-	if(KvJumpToKey(DB, SID, true))
-	{
-		char name[MAX_NAME_LENGTH];
-		char temp_name[MAX_NAME_LENGTH];
-		GetClientName(client, name, sizeof(name));
-
-		KvGetString(DB, "Name", temp_name, sizeof(temp_name), "NULL");
-		KvSetString(DB, "Name", name);
-		KvSetNum(DB, "Money", Cash[client]);
-
-		KvRewind(DB);
-		KeyValuesToFile(DB, KVPath);
-		CloseHandle(DB);
-
-	}
-	
-}
-
-
 public Action Command_SetCash(int client, int args)
 {
 	if(args!=2){
@@ -917,13 +1149,13 @@ public Action Command_SetCash(int client, int args)
 	{
 		if(StrEqual(Arg2, "default"))
 		{
-		Cash[client] = StartCash;
-		SaveCash(client);
+		UD[client].iCash = StartCash;
+		UpdateCash(client);
 		CPrintToChat(client, "{green}[TFRP]{default} Set your balance to {mediumseagreen}%d", StartCash);
 		return Plugin_Handled;
 		}else{
-			Cash[client] = StringToInt(Arg2);
-			SaveCash(client);
+			UD[client].iCash = StringToInt(Arg2);
+			UpdateCash(client);
 			CPrintToChat(client, "{green}[TFRP]{default} Set your balance to {mediumseagreen}%d", StringToInt(Arg2));
 			return Plugin_Handled;
 		}
@@ -939,16 +1171,16 @@ public Action Command_SetCash(int client, int args)
 
 			if(StrEqual(curNameSetCash, Arg1)){
 				if(StrEqual(Arg2, "default")){
-					Cash[i] = StartCash;
-					SaveCash(i);
+					UD[client].iCash = StartCash;
+					UpdateCash(i);
 					if(client>0){
 						CPrintToChat(client, "{green}[TFRP]{default} Set {goldenrod}%s\'s {default}balance to {mediumseagreen}%d", curNameSetCash, StartCash);
 					}else{
 						PrintToServer("[TFRP] Set %s\'s balance to %d", curNameSetCash, StartCash);
 					}
 				}else{
-					Cash[i] = StringToInt(Arg2);
-					SaveCash(i);
+					UD[client].iCash = StringToInt(Arg2);
+					UpdateCash(i);
 					if(client>0)
 					{
 						CPrintToChat(client, "{green}[TFRP]{default} Set {goldenrod}%s\'s {default}balance to {mediumseagreen}%d", curNameSetCash, StringToInt(Arg2));
@@ -979,9 +1211,9 @@ public Action Timer_Cash(Handle timer, int client)
 		CPrintToChat(client, "{green}[TFRP]{default} You didn't get paid since you're arrested");
 		return Plugin_Continue;
 	}
-	Cash[client] = Cash[client] + JobSalary[client];
-	SaveCash(client);
-	CPrintToChat(client, "{green}[TFRP]{default} You recieved{mediumseagreen} %d{default} from your paycheck", JobSalary[client]);
+	UD[client].iCash += UD[client].iJobSalary;
+	UpdateCash(client);
+	CPrintToChat(client, "{green}[TFRP]{default} You recieved{mediumseagreen} %d{default} from your paycheck", UD[client].iJobSalary);
 
 	return Plugin_Continue;
 
@@ -1044,7 +1276,7 @@ public int MenuCallBackJob(Handle menuhandle, MenuAction action, int Client, int
 		if(KvJumpToKey(DB4, Item, false)){
 		// Will detect if admin later
 			Job[Client] = Item;
-			JobSalary[Client] = KvGetNum(DB4, "Salary", 50); // If there isn't a salary it'll just be set to 50
+			UD[Client].iJobSalary = KvGetNum(DB4, "Salary", 50); // If there isn't a salary it'll just be set to 50
 			char IsPoliceStr[8];
 			KvGetString(DB4, "IsGov", IsPoliceStr, sizeof(IsPoliceStr), "false");
 			if(StrEqual(IsPoliceStr, "true"))
@@ -1062,7 +1294,7 @@ public int MenuCallBackJob(Handle menuhandle, MenuAction action, int Client, int
 			KvGetString(DB4, "CanOwnDoors", CanOwnDoorsStr, sizeof(CanOwnDoorsStr), "true");
 			CanOwnDoors[Client] = CanOwnDoorsStr;
 			KvRewind(DB4);
-			if(hCvar_AnnounceJobSwitch.FloatValue!=0.0){
+			if(cvarTFRP[AnnounceJobSwitch].BoolValue){
 				CPrintToChatAll("{green}[TFRP]{goldenrod} %s{default} set their job to {mediumseagreen}%s", name, Item);
 			}else{
 				CPrintToChat(Client, "{green}[TFRP]{default} Set your job to {mediumseagreen}%s", Item);
@@ -1086,144 +1318,164 @@ public int MenuCallBackJob(Handle menuhandle, MenuAction action, int Client, int
 }
 
 
-public int MenuCallBackNextInv(Handle menuhandle, MenuAction action, int Client, int Position)
+public int MenuCallBackNextInv(Handle menuhandle, MenuAction action, int iClient, int Position)
 {
-		if(action == MenuAction_Select)
+	switch(action)
+	{
+		case MenuAction_Select:
 		{
-		char CmdItemName[32];
+			char CmdItemName[32];
 
-		GetMenuItem(menuhandle, Position, CmdItemName, sizeof(CmdItemName));
+			GetMenuItem(menuhandle, Position, CmdItemName, sizeof(CmdItemName));
 
-		char ItemInfoNextInv[32][32];
-		ExplodeString(CmdItemName, "_", ItemInfoNextInv, 2, sizeof(ItemInfoNextInv));
+			char ItemInfoNextInv[32][32];
+			ExplodeString(CmdItemName, "_", ItemInfoNextInv, 2, sizeof(ItemInfoNextInv));
 
-		if(StrEqual(ItemInfoNextInv[0], "spawn")){
-		 SpawnInv(Client, ItemInfoNextInv[1]);
-		}else if(StrEqual(ItemInfoNextInv[0], "use")){
-		 UseItem(Client, ItemInfoNextInv[1]);
-		} else if(StrEqual(ItemInfoNextInv[0], "drop")){
-			DropItem(Client, ItemInfoNextInv[1]);
+			if(StrEqual(ItemInfoNextInv[0], "spawn")){
+				SpawnInv(iClient, ItemInfoNextInv[1]);
+			}else if(StrEqual(ItemInfoNextInv[0], "use")){
+				UseItem(iClient, ItemInfoNextInv[1]);
+			} else if(StrEqual(ItemInfoNextInv[0], "drop")){
+				DropItem(iClient, ItemInfoNextInv[1]);
+			}
 		}
-
-
-		} else if(action == MenuAction_End)
+		case MenuAction_Cancel:
+		{
+			switch(Position)
+			{
+				case MenuCancel_ExitBack:
+				{
+					MenuInvDisplayBack(iClient);
+				}
+			}
+		}
+		case MenuAction_End:
 		{
 			CloseHandle(menuhandle);
 		}
-		
-		return 0;
+	}		
+	return 0;
 }
 
 
 public int MenuCallBackNextShop(Handle menuhandle, MenuAction action, int Client, int Position)
 {
-	if(action == MenuAction_Select)
+	switch(action)
 	{
+		case MenuAction_Select:
+		{
+			char CmdItemNameShop[32];
+			char IsPrinterBuy[32];
+			char ItemInfoNextShop[32][32];
+			GetMenuItem(menuhandle, Position, CmdItemNameShop, sizeof(CmdItemNameShop));
+			ExplodeString(CmdItemNameShop, "_", ItemInfoNextShop, 2, sizeof(ItemInfoNextShop), false);
 
-		char CmdItemNameShop[32];
+			// Format information into 3 different strings - command(buy/sell), name, and price
 
-		char IsPrinterBuy[32];
+			char CmdShop[4]; // Bandaid fix, but for some reason after exploding the string, 
+			// it will copy the underscore plus 3 letters of the item's name. I figured "why waste
+			// an hour looking for a fix if I can just set the size of the string to 4" 
+			// it works but Im not sure if this'll cause problems down the line. This is also why the "sell" command is "sel"
 
-		GetMenuItem(menuhandle, Position, CmdItemNameShop, sizeof(CmdItemNameShop));
+			char ItemInfoNamePrice[32][32]; 
 
-		char ItemInfoNextShop[32][32];
-		ExplodeString(CmdItemNameShop, "_", ItemInfoNextShop, 2, sizeof(ItemInfoNextShop), false);
+			FormatEx(CmdShop, sizeof(CmdShop), "%s", CmdItemNameShop[0]);
+			// Seperate name from price
+			ExplodeString(ItemInfoNextShop[1], "-=", ItemInfoNamePrice, 2, sizeof(ItemInfoNamePrice));
 
-		// Format information into 3 different strings - command(buy/sell), name, and price
-
-		char CmdShop[4]; // Bandaid fix, but for some reason after exploding the string, 
-		// it will copy the underscore plus 3 letters of the item's name. I figured "why waste
-		// an hour looking for a fix if I can just set the size of the string to 4" 
-		// it works but Im not sure if this'll cause problems down the line. This is also why the "sell" command is "sel"
-
-		char ItemInfoNamePrice[32][32]; 
-
-		FormatEx(CmdShop, sizeof(CmdShop), "%s", CmdItemNameShop[0]);
-		// Seperate name from price
-		ExplodeString(ItemInfoNextShop[1], "-=", ItemInfoNamePrice, 2, sizeof(ItemInfoNamePrice));
-
-		if(StrEqual(CmdShop, "buy")){
-			if(Cash[Client]>=StringToInt(ItemInfoNamePrice[1])){
-				// Get Job Requirement
-						
-				Handle DB2 = CreateKeyValues("Shop");
-
-				FileToKeyValues(DB2, ShopPath);
-				if(KvJumpToKey(DB2, ItemInfoNamePrice[0], false))
-				{
-					KvGetString(DB2, "IsPrinter", IsPrinterBuy, sizeof(IsPrinterBuy));
-					bool FoundJobBuy = false;
-					if(KvJumpToKey(DB2, "Job_Reqs", true))
-					{
-						if(KvGotoFirstSubKey(DB2,false))
-						{
-				
-							do{
-		
-								char GetJobRequireBuy[32];
-								KvGetString(DB2, NULL_STRING, GetJobRequireBuy, sizeof(GetJobRequireBuy));
+			if(StrEqual(CmdShop, "buy")){
+				if(UD[Client].iCash>=StringToInt(ItemInfoNamePrice[1])){
+					// Get Job Requirement
 							
-								if(StrEqual(GetJobRequireBuy, "any") || StrEqual(GetJobRequireBuy, Job[Client]))
-								{
-									GiveItem(Client, ItemInfoNamePrice[0], 1);
-				
-									Cash[Client] = Cash[Client] - StringToInt(ItemInfoNamePrice[1]);
-									SaveCash(Client);
-				
-									CPrintToChat(Client, "{green}[TFRP]{default} You bought {mediumseagreen}%s{default} for {mediumseagreen}%d.{default} Your balance is now {mediumseagreen}%d", ItemInfoNamePrice[0], StringToInt(ItemInfoNamePrice[1]), Cash[Client]);
-									FoundJobBuy = true;
-									
-									Action result;
-									Call_StartForward(g_tfrp_forwards[1]);
-									Call_PushCell(Client);
-									Call_PushString(ItemInfoNamePrice[0]);
-									Call_PushCell(StringToInt(ItemInfoNamePrice[1]));
-									Call_Finish(result);
-									
-									break;
-								}
-				
-		
-							} while (KvGotoNextKey(DB2,false));
-					
-							if(!FoundJobBuy)
+					Handle DB2 = CreateKeyValues("Shop");
+
+					FileToKeyValues(DB2, ShopPath);
+					if(KvJumpToKey(DB2, ItemInfoNamePrice[0], false))
+					{
+						KvGetString(DB2, "IsPrinter", IsPrinterBuy, sizeof(IsPrinterBuy));
+						bool FoundJobBuy = false;
+						if(KvJumpToKey(DB2, "Job_Reqs", true))
+						{
+							if(KvGotoFirstSubKey(DB2,false))
 							{
-								CPrintToChat(Client, "{green}[TFRP]{default} Incorrect job");
-							}
+					
+								do{
+			
+									char GetJobRequireBuy[32];
+									KvGetString(DB2, NULL_STRING, GetJobRequireBuy, sizeof(GetJobRequireBuy));
+								
+									if(StrEqual(GetJobRequireBuy, "any") || StrEqual(GetJobRequireBuy, Job[Client]))
+									{
+										GiveItem(Client, ItemInfoNamePrice[0], 1);
+					
+										UD[Client].iCash = UD[Client].iCash - StringToInt(ItemInfoNamePrice[1]);
+										UpdateCash(Client);
+					
+										CPrintToChat(Client, "{green}[TFRP]{default} You bought {mediumseagreen}%s{default} for {mediumseagreen}%d.{default} Your balance is now {mediumseagreen}%d", ItemInfoNamePrice[0], StringToInt(ItemInfoNamePrice[1]), UD[Client].iCash);
+										FoundJobBuy = true;
+										
+										Action result;
+										Call_StartForward(g_tfrp_forwards[1]);
+										Call_PushCell(Client);
+										Call_PushString(ItemInfoNamePrice[0]);
+										Call_PushCell(StringToInt(ItemInfoNamePrice[1]));
+										Call_Finish(result);
+										
+										break;
+									}
+					
+			
+								} while (KvGotoNextKey(DB2,false));
 						
+								if(!FoundJobBuy)
+								{
+									CPrintToChat(Client, "{green}[TFRP]{default} Incorrect job");
+								}
+							
+							}
+						}
+					}else{
+						CPrintToChat(Client,"{green}[TFRP]{red} ERROR:{default} Could not find item in database");
+					}
+					KvRewind(DB2);
+					CloseHandle(DB2);
+					
+					if(StrEqual(IsPrinterBuy, "true"))
+					{
+						if(IsGov[Client] && StrEqual(Job[Client], "Mayor") || !IsGov[Client])
+						{
+							GiveItem(Client, ItemInfoNamePrice[0], 1);
+					
+							UD[Client].iCash = UD[Client].iCash - StringToInt(ItemInfoNamePrice[1]);
+							UpdateCash(Client);
+					
+							CPrintToChat(Client, "{green}[TFRP]{default} You bought {mediumseagreen}%s{default} for {mediumseagreen}%d.{default} Your balance is now {mediumseagreen}%d", ItemInfoNamePrice[0], StringToInt(ItemInfoNamePrice[1]), UD[Client].iCash);
 						}
 					}
-				}else{
-					CPrintToChat(Client,"{green}[TFRP]{red} ERROR:{default} Could not find item in database");
+					
+				} else {
+					CPrintToChat(Client, "{green}[TFRP]{default} Insufficent funds");
 				}
-				KvRewind(DB2);
-				CloseHandle(DB2);
+		
+			} else if(StrEqual(CmdShop, "sel")){
+				SellItem(Client, ItemInfoNamePrice[0], StringToInt(ItemInfoNamePrice[1])/ShopReturn);
 				
-				if(StrEqual(IsPrinterBuy, "true"))
-				{
-					if(IsGov[Client] && StrEqual(Job[Client], "Mayor") || !IsGov[Client])
-					{
-						GiveItem(Client, ItemInfoNamePrice[0], 1);
-				
-						Cash[Client] = Cash[Client] - StringToInt(ItemInfoNamePrice[1]);
-						SaveCash(Client);
-				
-						CPrintToChat(Client, "{green}[TFRP]{default} You bought {mediumseagreen}%s{default} for {mediumseagreen}%d.{default} Your balance is now {mediumseagreen}%d", ItemInfoNamePrice[0], StringToInt(ItemInfoNamePrice[1]), Cash[Client]);
-					}
-				}
-				
-			} else {
-				CPrintToChat(Client, "{green}[TFRP]{default} Insufficent funds");
 			}
-	
-		} else if(StrEqual(CmdShop, "sel")){
-		 SellItem(Client, ItemInfoNamePrice[0], StringToInt(ItemInfoNamePrice[1])/ShopReturn);
-			
 		}
-
-	} else if(action == MenuAction_End)
-	{
-		CloseHandle(menuhandle);
+		case MenuAction_Cancel:
+		{
+			switch(Position)
+			{
+				case MenuCancel_ExitBack:
+				{
+					OpenBuyMenu(Client); //Quick fix but rather put back to catagory
+				}
+			}
+		}
+		case MenuAction_End:
+		{
+			CloseHandle(menuhandle);
+		}
 	}
 	
 	return 0;
@@ -1232,47 +1484,45 @@ public int MenuCallBackNextShop(Handle menuhandle, MenuAction action, int Client
 
 
 
-public void NextInvMenu(int client, char[] iteminfo)
+public void NextInvMenu(int client, char[] iteminfo, int itemcount)
 {
-	
-	Handle DB = CreateKeyValues("PlayerInfo");
-	FileToKeyValues(DB, KVPath);
-
-	char SID[32];
-	GetClientAuthId(client, AuthId_Steam2, SID, sizeof(SID));
-
-	int getCurItemAmtDisplay = 0;
-
-	if(KvJumpToKey(DB, SID, true))
-	{
-		if(KvJumpToKey(DB, "Items", true)){
-
-			getCurItemAmtDisplay = KvGetNum(DB, iteminfo, 0);
-			KvRewind(DB);
-			KvRewind(DB);
-			KeyValuesToFile(DB, KVPath);
-			CloseHandle(DB);
-		}
-	
-	}
-
 	Handle menuhandleNInv = CreateMenu(MenuCallBackNextInv);
-	SetMenuTitle(menuhandleNInv, "[TFRP] You have %d %s", getCurItemAmtDisplay,iteminfo);
+	SetMenuTitle(menuhandleNInv, "[TFRP] You have %d %s", itemcount, iteminfo);
 
-	
-
-	char SpawnItemInfo[32];
+	char SpawnItemInfo[32],
+		UseItemInfo[32],
+		DropItemInfo[32];
 	FormatEx(SpawnItemInfo, sizeof(SpawnItemInfo), "spawn_%s", iteminfo);
-	char UseItemInfo[32];
 	FormatEx(UseItemInfo, sizeof(UseItemInfo), "use_%s", iteminfo);
-	char DropItemInfo[32];
 	FormatEx(DropItemInfo, sizeof(DropItemInfo), "drop_%s", iteminfo);
+	
+	// First off, we need to see if the item is spawnable, this is located in the shop file under "type"
+	Handle DB2 = CreateKeyValues("Shop");
 
-	AddMenuItem(menuhandleNInv, SpawnItemInfo, "Spawn Item");
-	AddMenuItem(menuhandleNInv, UseItemInfo, "Use Item");
+	FileToKeyValues(DB2, ShopPath);
+	if(KvJumpToKey(DB2, iteminfo, false))
+	{
+		char spawning_item[48];
+		KvGetString(DB2, "type", spawning_item, sizeof(spawning_item), "item");
+		if(StrEqual(spawning_item, "ent"))
+		{
+			AddMenuItem(menuhandleNInv, SpawnItemInfo, "Spawn Item");
+		}
+		if (StrEqual(spawning_item, "item", false) || StrEqual(spawning_item, "weapon"))
+		{
+			AddMenuItem(menuhandleNInv, UseItemInfo, "Use Item");
+		}
+	}
+	else
+	{
+		CPrintToChat(client, "{green}[TFRP]{red} ERROR: {default}For some reason, the item couldn't be found in the database. Maybe the item was deleted from the server?");
+	}
+	//Supprised this worked out so well -Squid
+	
 	AddMenuItem(menuhandleNInv, DropItemInfo, "Drop Item");
 	SetMenuPagination(menuhandleNInv, 7);
 	SetMenuExitButton(menuhandleNInv, true);
+	SetMenuExitBackButton(menuhandleNInv, true);
 	DisplayMenu(menuhandleNInv, client, 250);
 }
 
@@ -1309,24 +1559,29 @@ public void BuyShopMenu(int client, char[] iteminfoshop)
 		AddMenuItem(menuhandleNShop, SellItemInfoShop, "Sell");
 		SetMenuPagination(menuhandleNShop, 7);
 		SetMenuExitButton(menuhandleNShop, true);
+		SetMenuExitBackButton(menuhandleNShop, true);
 		DisplayMenu(menuhandleNShop, client, 250);
 	}
 }
 
 
-public int MenuCallBackItems(Handle menuhandleitems, MenuAction action, int Client, int Position)
+public int MenuCallBackItems(Handle menuhandleitems, MenuAction action, int iClient, int Position)
 {
 	if(action == MenuAction_Select)
 	{
 		char ItemName[32];
-		char name[48];
 
-		GetClientName(Client, name, sizeof(name));
+		Handle hArray = GetArrayCell(hItemArray[iClient], Position);
 
-		GetMenuItem(menuhandleitems, Position, ItemName, sizeof(ItemName));
+		GetArrayString(hArray, 0, ItemName, sizeof(ItemName));
 
-		NextInvMenu(Client, ItemName);
+		if(cvarTFRP[Debug].BoolValue)
+		{
+			PrintToServer("[TFRP] Item selected: %s", ItemName);
+			PrintToServer("[TFRP] Item count: %d", GetArrayCell(hArray, 1));
+		}
 
+		NextInvMenu(iClient, ItemName, GetArrayCell(hArray, 1));
 
 	} else if(action == MenuAction_End)
 	{
@@ -1336,19 +1591,32 @@ public int MenuCallBackItems(Handle menuhandleitems, MenuAction action, int Clie
 }
 
 
-public int MenuCallBackShop(Handle menuhandleshop, MenuAction action, int Client, int Position)
+public int MenuCallBackShop(Handle menuhandleshop, MenuAction action, int iClient, int Position)
 {
-	if(action == MenuAction_Select)
+	switch(action)
 	{
-	char ItemNameShop[32];
+		case MenuAction_Select:
+		{
+			char ItemNameShop[32];
 
-	GetMenuItem(menuhandleshop, Position, ItemNameShop, sizeof(ItemNameShop));
-		
-	NextCatShopMenu(Client, ItemNameShop);
-
-	} else if(action == MenuAction_End)
-	{
-		CloseHandle(menuhandleshop);
+			GetMenuItem(menuhandleshop, Position, ItemNameShop, sizeof(ItemNameShop));
+				
+			NextCatShopMenu(iClient, ItemNameShop);
+		}
+		case MenuAction_Cancel:
+		{
+			switch(Position)
+			{
+				case MenuCancel_ExitBack:
+				{
+					OpenBuyMenu(iClient);
+				}
+			}
+		}
+		case MenuAction_End:
+		{
+			CloseHandle(menuhandleshop);
+		}
 	}
 	return 0;
 }
@@ -1378,7 +1646,7 @@ public int NextCatShopMenu(int client, char[] iteminfocatshop)
 	CloseHandle(DB2);
 
 	Handle menuhandle = CreateMenu(MenuCallBackShopItems);
-	SetMenuTitle(menuhandle, "[TFRP] %s Items. Balance: %d", iteminfocatshop, Cash[client]);
+	SetMenuTitle(menuhandle, "[TFRP] %s Items. Balance: %d", iteminfocatshop, UD[client].iCash);
 
 
 	for(int i = 0 ; i < GetArraySize(hItemListShop) ; i++) 
@@ -1390,6 +1658,7 @@ public int NextCatShopMenu(int client, char[] iteminfocatshop)
 
 	SetMenuPagination(menuhandle, 7);
 	SetMenuExitButton(menuhandle, true);
+	SetMenuExitBackButton(menuhandle, true);
 	DisplayMenu(menuhandle, client, 250);
 
 	return 0;
@@ -1397,19 +1666,43 @@ public int NextCatShopMenu(int client, char[] iteminfocatshop)
 }
 
 
-public int MenuCallBackShopItems(Handle menuhandle, MenuAction action, int Client, int Position)
+public int MenuCallBackShopItems(Handle menuhandle, MenuAction action, int iClient, int Position)
 {
-	if(action == MenuAction_Select)
+	switch(action)
 	{
-		char ItemNameShopItem[32];
+		case MenuAction_Select:
+		{
+			char ItemNameShopItem[32];
 
-		GetMenuItem(menuhandle, Position, ItemNameShopItem, sizeof(ItemNameShopItem));
-		BuyShopMenu(Client, ItemNameShopItem);
-		
-	} else if(action == MenuAction_End)
-	{
-		CloseHandle(menuhandle);
+			GetMenuItem(menuhandle, Position, ItemNameShopItem, sizeof(ItemNameShopItem));
+			BuyShopMenu(iClient, ItemNameShopItem);
+		}
+		case MenuAction_Cancel:
+		{
+			switch(Position)
+			{
+				case MenuCancel_ExitBack:
+				{
+					OpenBuyMenu(iClient);
+				}
+			}
+		}
+		case MenuAction_End:
+		{
+			CloseHandle(menuhandle);
+		}
 	}
+	// if(action == MenuAction_Select)
+	// {
+	// 	char ItemNameShopItem[32];
+
+	// 	GetMenuItem(menuhandle, Position, ItemNameShopItem, sizeof(ItemNameShopItem));
+	// 	BuyShopMenu(Client, ItemNameShopItem);
+		
+	// } else if(action == MenuAction_End)
+	// {
+	// 	CloseHandle(menuhandle);
+	// }
 	return 0;
 }
 
@@ -1485,7 +1778,7 @@ public int MenuCallBackNextHitman(Handle menuhandle, MenuAction action, int Clie
 {
 	if(action == MenuAction_Select)
 	{
-		if(Cash[Client] < HitPrice)
+		if(UD[Client].iCash  < HitPrice)
 		{
 			CPrintToChat(Client, "{green}[TFRP]{default} Insufficent funds");
 		}else{
@@ -1507,7 +1800,7 @@ public int MenuCallBackNextHitman(Handle menuhandle, MenuAction action, int Clie
 			FormatEx(GetHitmanAndHitName, sizeof(GetHitmanAndHitName), "%s:%s", curPlacerHit, curHitman);
 
 			Hits[StringToInt(SplitHitmanHitPlacer[0])] = curHitVictim;
-			Cash[curPlacerHit] = Cash[curPlacerHit] - HitPrice;
+			UD[curPlacerHit].iCash -= HitPrice;
 			
 			char GetHitPlacerName[MAX_NAME_LENGTH];
 			GetClientName(curPlacerHit, GetHitPlacerName, sizeof(GetHitPlacerName));
@@ -1635,16 +1928,8 @@ public Action PlayerSpawn(Event event, char[] name, bool dontBroadcast)
 {
 	
 	int client = GetClientOfUserId(event.GetInt("userid"));
-	
-	int wepIdx;
-	for (int x = 0; x <= 4; x++)
-	{
-		if (x != 2 && (wepIdx = GetPlayerWeaponSlot(client, x)) != -1)
-		{  
-			RemovePlayerItem(client, wepIdx);
-			RemoveEdict(wepIdx);
-		}
-	}
+
+	StripToMelee(client); //Thanks again JB Redux
 	
 	Handle DB = CreateKeyValues("Jobs");
 	FileToKeyValues(DB, JobPath);
@@ -1736,7 +2021,6 @@ public bool TraceRayProp(int entityhit, int mask)
 
 public int SpawnInv(int client, char[] ent)
 {
-	
 	// See if player is alive
 	if(!IsPlayerAlive(client))
 	{
@@ -1887,14 +2171,13 @@ public int SpawnInv(int client, char[] ent)
 						DispatchSpawn(EntIndex);
 						TeleportEntity(EntIndex, EndOrigin, NULL_VECTOR, NULL_VECTOR);
 						CPrintToChat(client, "{green}[TFRP]{default} Successfully spawned item!");
-						RemItem(client, curEnt, 1);
+						GiveItem(client, curEnt, -1); //Yes negative == remove
 						EntOwners[EntIndex] = client;
 						char GetItemNameEnt[32];
 						FormatEx(GetItemNameEnt, sizeof(GetItemNameEnt), "%s", ent);
 						EntItems[EntIndex] = GetItemNameEnt;
 						CreateTimer(3.0, Timer_NoSpawnInPlayer, EntIndex);
-						
-						
+								
 					}else{
 						CPrintToChat(client, "{green}[TFRP]{default} You must spawn the entity closer!");
 						RemoveEdict(EntIndex);
@@ -1928,10 +2211,9 @@ public int SpawnInv(int client, char[] ent)
 					int EntColorA = 255;
 						
 					SetEntityRenderColor(EntIndex, EntColorR, EntColorG, EntColorB, EntColorA);
-					
+						
 				}
-				
-				
+					
 				// Spawn functions for specific items
 					
 				if(StrEqual(curEnt,"Australium Drill"))
@@ -1966,9 +2248,7 @@ public int SpawnInv(int client, char[] ent)
 				Call_PushString(curEnt);
 				Call_PushCell(EntIndex);
 				Call_Finish(result);
-				
-			
-				
+ 
 			} else {
 				CPrintToChat(client, "{green}[TFRP]{red} ERROR: {default}Couldn't create entity! Maybe the server has to update Sourcemod?");
 			}
@@ -1990,91 +2270,131 @@ public int SpawnInv(int client, char[] ent)
 
 
 // Add items to people's inventories
-public int GiveItem(int client, char[] GiveItemStr, int amt)
+public int GiveItem(int iClient, char[] GiveItemStr, int amt) //Can also give negative (so no RemItem any more)
 {
-	Handle DB = CreateKeyValues("PlayerInfo");
-	FileToKeyValues(DB, KVPath);
+	char sAuth[32],
+		sQuery[MAX_QUERY_SIZE];
+	GetClientAuthId(iClient, AuthId_Steam2, sAuth, sizeof(sAuth));
 
-	char SID[32];
-	GetClientAuthId(client, AuthId_Steam2, SID, sizeof(SID));
+	Handle hPack = CreateDataPack();
+	WritePackCell(hPack, amt);
+	WritePackString(hPack, sAuth);
+	WritePackString(hPack, GiveItemStr);
 
-	if(KvJumpToKey(DB, SID, true))
-	{
-		if(KvJumpToKey(DB, "Items", true)){
-
-			int curAmtItemGive = KvGetNum(DB, GiveItemStr, 0);
-			KvSetNum(DB, GiveItemStr, curAmtItemGive + amt);
-			KvRewind(DB);
-			KvRewind(DB);
-			KeyValuesToFile(DB, KVPath);
-			CloseHandle(DB);
-		}
+	Format(sQuery, sizeof(sQuery), sQuery_UpdateUserItem, sUserInvTable, amt, sAuth, GiveItemStr);
+	if (cvarTFRP[SQLDebug].BoolValue)
+		PrintToServer("[TFRP] GiveItem query: %s", sQuery);
 	
-	}
+	SQL_TQuery(g_hSQL, SQLCall_GiveItem, sQuery, hPack);
 	return 0;
 }
 
-// Remove items from people's inventories
-public int RemItem(int client, char[] RemItemStr, int amt)
+void SQLCall_GiveItem(Handle owner, Handle hndl, const char[] error, any data)
 {
-	Handle DB = CreateKeyValues("PlayerInfo");
-	FileToKeyValues(DB, KVPath);
-
-	char SID[32];
-	GetClientAuthId(client, AuthId_Steam2, SID, sizeof(SID));
-
-	if(KvJumpToKey(DB, SID, true))
+	if (hndl == INVALID_HANDLE)
+    {
+		CloseHandle(data);
+		LogError("[TFRP] Failed to run GiveItem query: %s", error);
+		PrintToServer("[TFRP] Failed to run GiveItem query: %s", error);
+		return;
+    }
+	if (SQL_GetAffectedRows(hndl) < 1)
 	{
-		if(KvJumpToKey(DB, "Items", true)){
+		char sAuth[32],
+			sID[32],
+			sQuery[MAX_QUERY_SIZE];
+		ResetPack(data);
+		int amt = ReadPackCell(data);
+		ReadPackString(data, sAuth, sizeof(sAuth));
+		ReadPackString(data, sID, sizeof(sID));
+		CloseHandle(data);
 
+		Format(sQuery, sizeof(sQuery), sQuery_InsertUserItem, sUserInvTable, sAuth, sID, amt);
+		if (cvarTFRP[SQLDebug].BoolValue)
+			PrintToServer("[TFRP] GiveItem Insert query: %s", sQuery);
 
-			int curAmtItemRem = KvGetNum(DB, RemItemStr, 0);
-			KvSetNum(DB, RemItemStr, curAmtItemRem - amt);
-			int curAmtItemRemCheck = KvGetNum(DB, RemItemStr, 0);
-			if(curAmtItemRemCheck<=0){
-				KvDeleteKey(DB, RemItemStr);
-			}
-			KvRewind(DB);
-			KvRewind(DB);
-			KeyValuesToFile(DB, KVPath);
-			CloseHandle(DB);
-		}
-	
+		SQL_TQuery(g_hSQL, SQLCall_GiveItemInsert, sQuery);
 	}
-	return 0;
+	else 
+	{
+		CloseHandle(data);
+	}
 }
 
+void SQLCall_GiveItemInsert(Handle owner, Handle hndl, const char[] error, any data)
+{
+	if (hndl == INVALID_HANDLE)
+    {
+		LogError("[TFRP] Failed to run GiveItem Insert query: %s", error);
+		PrintToServer("[TFRP] Failed to run GiveItem Insert query: %s", error);
+		return;
+    }
+}
 
 // Removes item in return for cash
-public int SellItem(int client, char[] SellItemStr, int sellPrice)
+public int SellItem(int iClient, char[] SellItemStr, int sellPrice)
 {
-	Handle DB = CreateKeyValues("PlayerInfo");
-	FileToKeyValues(DB, KVPath);
 
-	char SID[32];
-	GetClientAuthId(client, AuthId_Steam2, SID, sizeof(SID));
+	char sAuth[32],
+		sQuery[MAX_QUERY_SIZE];
+	GetClientAuthId(iClient, AuthId_Steam2, sAuth, sizeof(sAuth));
 
-	if(KvJumpToKey(DB, SID, true))
+	DataPack hPack = CreateDataPack();
+	WritePackCell(hPack, iClient); 
+	WritePackCell(hPack, sellPrice);
+	WritePackString(hPack, SellItemStr);
+
+	Format(sQuery, sizeof(sQuery), sQuery_GetUserItem, sUserInvTable, sAuth, SellItemStr);
+	
+	if (cvarTFRP[SQLDebug].BoolValue)
+		PrintToServer("[TFRP] SellItem query: %s", sQuery);
+
+	SQL_TQuery(g_hSQL, SQLCall_SellItem, sQuery, hPack);
+
+	return 0;
+}
+
+void SQLCall_SellItem(Handle owner, Handle hndl, const char[] error, any data)
+{
+	if (hndl == INVALID_HANDLE)
+    {
+		CloseHandle(data);
+		LogError("[TFRP] Failed to run SellItem Get query: %s", error);
+		PrintToServer("[TFRP] Failed to run SellItem Get query: %s", error);
+		return;
+    }
+	//Get client index
+	char sItemName[32];
+	ResetPack(data);
+	int iClient = ReadPackCell(data);
+	int sellPrice = ReadPackCell(data);
+	ReadPackString(data, sItemName, sizeof(sItemName));
+	CloseHandle(data);
+
+	if (SQL_GetRowCount(hndl) <= 0)
 	{
-		if(KvJumpToKey(DB, "Items", true)){
-			if(KvJumpToKey(DB, SellItemStr, false)){
-
-				Cash[client] = Cash[client] + sellPrice;
-				SaveCash(client);
-
-				CPrintToChat(client, "{green}[TFRP]{default} You sold {mediumseagreen}%s{default} for {mediumseagreen}%d.{default} Your balance is now {mediumseagreen}%d", SellItemStr, sellPrice, Cash[client]);
-
-			}else{
-				CPrintToChat(client, "{green}[TFRP]{default} Your inventory does not contain {mediumseagreen}%s.", SellItemStr);
+		CPrintToChat(iClient, "{green}[TFRP]{default} Your inventory does not contain {mediumseagreen}%s.", sItemName);
+		return;
+	}
+	else
+	{
+		while (SQL_FetchRow(hndl))
+		{
+			if(SQL_FetchInt(hndl, 0) < 1)
+			{
+				CPrintToChat(iClient, "{green}[TFRP]{default} Your inventory does not contain {mediumseagreen}%s.", sItemName);
+				return;
+			} 
+			else
+			{
+				UD[iClient].iCash += sellPrice;
+				UpdateCash(iClient);
+				GiveItem(iClient, sItemName, -1);
+				CPrintToChat(iClient, "{green}[TFRP]{default} You sold {mediumseagreen}%s{default} for {mediumseagreen}%d.{default} Your balance is now {mediumseagreen}%d", sItemName, sellPrice, UD[iClient].iCash);
+				return;
 			}
-			KvRewind(DB);
-			KvRewind(DB);
-			KeyValuesToFile(DB, KVPath);
-			CloseHandle(DB);
-			RemItem(client, SellItemStr, 1);
 		}
 	}
-	return 0;
 }
 
 // Using items
@@ -2145,12 +2465,14 @@ public int UseItem(int client, char[] ItemUse)
 		{
 			int HealthKitSizeUse = KvGetNum(DB2, "HKSize", 1);
 			UseMedkit(client, HealthKitSizeUse);
+			GiveItem(client, ItemUse, -1); //Don't know why you removed these in 1.1 -Squid
 			KvRewind(DB2);
 		}
 		if(StrEqual(IsAmmopack, "true"))
 		{
 			int AmmopackSizeUse = KvGetNum(DB2, "APSize", 1);
 			UseAmmopack(client, AmmopackSizeUse);
+			GiveItem(client, ItemUse, -1);
 			KvRewind(DB2);
 		}
 
@@ -2163,17 +2485,14 @@ public int UseItem(int client, char[] ItemUse)
 
 
 // Sandvich Stuff
-	
 	if(StrEqual(ItemUse, "Bread")){
 		AddIngredientSandvich(client, "Bread");
 	} else if(StrEqual(ItemUse, "Lettuce")){
 		AddIngredientSandvich(client, "Lettuce");
 	} else if(StrEqual(ItemUse, "Meat")){
 		AddIngredientSandvich(client, "Meat");
-		
 	} else if(StrEqual(ItemUse, "Cheese")){
 		AddIngredientSandvich(client, "Cheese"); 
-	
 	} else if(StrEqual(ItemUse, "Fuel")){
 	// Australium
 		AddFuelAustraliumDrill(client);
@@ -2192,6 +2511,7 @@ public int UseItem(int client, char[] ItemUse)
 	Call_PushCell(client);
 	Call_PushString(ItemUse);
 	Call_Finish(result);
+
 	return 0;
 }
 
@@ -2285,7 +2605,7 @@ public int DropItem(int client, char[] ItemDrop)
 				DispatchSpawn(EntIndex);
 
 				TeleportEntity(EntIndex, EndOrigin, NULL_VECTOR, NULL_VECTOR);
-				RemItem(client, ItemDrop, 1);
+				GiveItem(client, ItemDrop, -1);
 				CPrintToChat(client, "{green}[TFRP]{default} You dropped a {mediumseagreen}%s", ItemDrop);
 				DroppedItems[client] = DroppedItems[client] + 1;
 				
@@ -2428,6 +2748,8 @@ public Action Command_JOB(int client, int args)
 		return Plugin_Handled;
 	}
 
+	UpdatePlayTime(client); //My idea was to restrict certain jobs to have at least X playtime. -Squid
+
 	// Get jobs from file
 
 	Handle hJobList = CreateArray(32);
@@ -2473,7 +2795,7 @@ public Action Command_BAL(int client, int args)
 		return Plugin_Handled;
 	}
 
-	CPrintToChat(client, "{green}[TFRP]{default} Your balance is{mediumseagreen} %d", Cash[client]);
+	CPrintToChat(client, "{green}[TFRP]{default} Your balance is{mediumseagreen} %d", UD[client].iCash);
 
 	return Plugin_Handled;
 }
@@ -2482,7 +2804,7 @@ public Action Command_GiveMoneyPtoP(int client, int args)
 {
 	if(args != 1)
 	{
-		CPrintToChat(client, "{green}[TFRP}{default} Usage: sm_givemoney <amount>");
+		CPrintToChat(client, "{green}[TFRP]{default} Usage: sm_givemoney <amount>");
 		return Plugin_Handled;
 	}
 	
@@ -2496,12 +2818,12 @@ public Action Command_GiveMoneyPtoP(int client, int args)
 	char MoneyPtoP[32];
 	GetCmdArg(1, MoneyPtoP, sizeof(MoneyPtoP));
 	
-	if(Cash[client] >= StringToInt(MoneyPtoP))
+	if(UD[client].iCash  >= StringToInt(MoneyPtoP))
 	{
-		Cash[client] = Cash[client] - StringToInt(MoneyPtoP);
-		SaveCash(client);
-		Cash[curPlayerGiveMoney] = Cash[curPlayerGiveMoney] + StringToInt(MoneyPtoP);
-		SaveCash(curPlayerGiveMoney);
+		UD[client].iCash -= StringToInt(MoneyPtoP);
+		UpdateCash(client);
+		UD[curPlayerGiveMoney].iCash += StringToInt(MoneyPtoP);
+		UpdateCash(curPlayerGiveMoney);
 		
 		char curPlayerGiveMoneyName[MAX_NAME_LENGTH];
 		GetClientName(curPlayerGiveMoney, curPlayerGiveMoneyName, sizeof(curPlayerGiveMoneyName));
@@ -2528,10 +2850,18 @@ public Action Command_BUYMENU(int client, int args)
 		CPrintToChat(client, "{green}[TFRP]{default} You cannot do /shop while arrested.");
 		return Plugin_Handled;
 	}
-	
+
+	OpenBuyMenu(client);
+
+	return Plugin_Handled;	
+
+}
+
+public void OpenBuyMenu(int iClient)
+{
 	// This is the menu version of the buy command, supports items with spaces in their names!
 	Handle menuhandle = CreateMenu(MenuCallBackShop);
-	SetMenuTitle(menuhandle, "[TFRP] Item Shop. Balance: %d", Cash[client]);
+	SetMenuTitle(menuhandle, "[TFRP] Item Shop. Balance: %d", UD[iClient].iCash);
 
 	
 	// Get All Items to insert to menu
@@ -2551,8 +2881,6 @@ public Action Command_BUYMENU(int client, int args)
     } while (KvGotoNextKey(DB3,false));
 
 	CloseHandle(DB3);
-	
-
 
 	for(int i = 0 ; i < GetArraySize(hItemListShop) ; i++) 
 	{	
@@ -2563,10 +2891,7 @@ public Action Command_BUYMENU(int client, int args)
 
 	SetMenuPagination(menuhandle, 7);
 	SetMenuExitButton(menuhandle, true);
-	DisplayMenu(menuhandle, client, 250);
-
-	return Plugin_Handled;	
-
+	DisplayMenu(menuhandle, iClient, 250);
 }
 
 public Action Command_Setjob(int client, int args)
@@ -2684,9 +3009,9 @@ public Action HUD(Handle timer, int client)
 	char HudJob[32];
 	FormatEx(HudJob, sizeof(HudJob), "Job: %s", Job[client]);
 	char HudCash[32];
-	FormatEx(HudCash, sizeof(HudCash), "Cash: %d", Cash[client]);
+	FormatEx(HudCash, sizeof(HudCash), "Cash: %d", UD[client].iCash);
 	char HudSalary[32];
-	FormatEx(HudSalary, sizeof(HudSalary), "Salary: %d", JobSalary[client]);
+	FormatEx(HudSalary, sizeof(HudSalary), "Salary: %d", UD[client].iJobSalary);
 	SetHudTextParams(0.010, 0.010, 1.0, 120, 56, 21, 200, 0, 6.0, 0.0, 0.0);
 	ShowSyncHudText(client, hHud1, "%s", HudJob);
 	SetHudTextParams(0.010, 0.050, 1.0, 120, 56, 21, 200, 0, 6.0, 0.0, 0.0);
@@ -2734,57 +3059,104 @@ public Action Command_INVENTORY(int client, int args)
 		return Plugin_Handled;
 	}
 
-	Handle hItemList = CreateArray(32);
-	Handle DB = CreateKeyValues("PlayerInfo");
-	FileToKeyValues(DB, KVPath);
-	char SID[32];
-	GetClientAuthId(client, AuthId_Steam2, SID, sizeof(SID));
-
-	if(KvJumpToKey(DB, SID, true))
-	{
-		if(KvJumpToKey(DB, "items", false))
-		{
-			KvGotoFirstSubKey(DB,false);
-	
-			do{
-			
-				char itemName[32];
-				KvGetSectionName(DB, itemName, sizeof(itemName));
-				PushArrayString(hItemList, itemName);
-
-			} while (KvGotoNextKey(DB,false));
-			
-			KvRewind(DB);
-			KvRewind(DB);
-			KeyValuesToFile(DB, KVPath);
-			CloseHandle(DB);
-		}else{
-	 		CPrintToChat(client, "{green}[TFRP]{default} You don't have any items!");
-			KvRewind(DB);
-			KeyValuesToFile(DB, KVPath);
-			CloseHandle(DB);
-		}
-	}
-
-	Handle menuhandle = CreateMenu(MenuCallBackItems);
-	SetMenuTitle(menuhandle, "[TFRP] %d Items. Balance: %d", GetArraySize(hItemList), Cash[client]);
-
-	// Get all items from their file
-	
-	for(int fItem = 0 ; fItem < GetArraySize(hItemList) ; fItem++) {
-		char itemBuffer[32];
-		GetArrayString(hItemList, fItem, itemBuffer, sizeof(itemBuffer));
-		AddMenuItem(menuhandle, itemBuffer, itemBuffer);
-	}
-
-	SetMenuPagination(menuhandle, 7);
-	SetMenuExitButton(menuhandle, true);
-	DisplayMenu(menuhandle, client, 250);
+	OpenInv(client);
 
 	return Plugin_Handled;	
 }
 
+void OpenInv(int iClient)
+{
+	char sAuth[32],
+		sQuery[MAX_QUERY_SIZE];
+	GetClientAuthId(iClient, AuthId_Steam2, sAuth, sizeof(sAuth));
 
+	DataPack hPack = CreateDataPack();
+	WritePackCell(hPack, iClient); 
+
+	Format(sQuery, sizeof(sQuery), sQuery_GetUserItems, sUserInvTable, sAuth);
+	
+	if (cvarTFRP[SQLDebug].BoolValue)
+		PrintToServer("[TFRP] Inventory query: %s", sQuery);
+
+	SQL_TQuery(g_hSQL, SQLCall_OpenInventory, sQuery, hPack);
+}
+
+void SQLCall_OpenInventory(Handle owner, Handle hndl, const char[] error, any data)
+{
+	if (hndl == INVALID_HANDLE)
+    {
+		CloseHandle(data);
+		LogError("[TFRP] Failed to run OpenInventory query: %s", error);
+		PrintToServer("[TFRP] Failed to run OpenInventory query: %s", error);
+		return;
+    }
+	//Get client index
+	ResetPack(data);
+	int iClient = ReadPackCell(data);
+	CloseHandle(data);
+
+	int count = SQL_GetRowCount(hndl);
+
+	Handle hInvMenu = CreateMenu(MenuCallBackItems);
+	SetMenuTitle(hInvMenu, "[TFRP] %d Items. Balance : %d", count, UD[iClient].iCash);
+
+	if(hItemArray[iClient] == INVALID_HANDLE)
+		hItemArray[iClient] = CreateArray(); 
+	//Storing in a Array in order to only run the query once took me too long -Squid
+	
+	ClearArray2(hItemArray[iClient]);
+
+	while (SQL_FetchRow(hndl)) //This goes on until there are no more rows.
+	{
+		Handle hArray = CreateArray(ByteCountToCells(1024));
+		char buffer[32],
+			ItemName[32];
+
+		SQL_FetchString(hndl, 0, ItemName, sizeof(ItemName));
+
+		if(SQL_FetchInt(hndl, 1) > 0) //Lets not draw items we dont have
+		{
+			Format(buffer, sizeof(buffer), "%s (%d)", ItemName, SQL_FetchInt(hndl, 1));
+			AddMenuItem(hInvMenu, ItemName, buffer);
+			PushArrayString(hArray, ItemName);
+			PushArrayCell(hArray, SQL_FetchInt(hndl, 1));
+			
+			PushArrayCell(hItemArray[iClient], hArray);
+		}
+	}
+
+	if (GetMenuItemCount(hInvMenu) < 1)
+	{
+		AddMenuItem(hInvMenu, "", "[Inventory Empty]", ITEMDRAW_DISABLED); //So it doesn't seem like the plugin gave up
+	}
+
+	//Wow I've got the full inventory, now it's time to show the menu with it.
+	SetMenuPagination(hInvMenu, 7);
+	SetMenuExitButton(hInvMenu, true);
+	DisplayMenu(hInvMenu, iClient, 250);
+}
+
+void MenuInvDisplayBack(int iClient) //Assuming things did not change :/
+{
+	Handle hInvMenu = CreateMenu(MenuCallBackItems);
+	SetMenuTitle(hInvMenu, "[TFRP] %d Items. Balance : %d", GetArraySize(hItemArray[iClient]), UD[iClient].iCash);
+	for (int i=0; i < GetArraySize(hItemArray[iClient]); i++)
+	{
+		char ItemName[32],
+			buffer[32];
+		Handle hArray = GetArrayCell(hItemArray[iClient], i);
+		GetArrayString(hArray, 0, ItemName, sizeof(ItemName));
+		if(GetArrayCell(hArray, 1) > 0) //Lets not draw items we dont have
+		{
+			Format(buffer, sizeof(buffer), "%s (%d)", ItemName, GetArrayCell(hArray, 1));
+			AddMenuItem(hInvMenu, ItemName, buffer);
+		}
+	}
+
+	SetMenuPagination(hInvMenu, 7);
+	SetMenuExitButton(hInvMenu, true);
+	DisplayMenu(hInvMenu, iClient, 250);
+}
 
 //////////////////////
 // Sandvich Making //
@@ -2815,7 +3187,7 @@ public int AddIngredientSandvich(int client, char[] ingredientSandvich)
 			STableIngredients[curSandvichTable][2] = STableIngredients[curSandvichTable][2] - 1; 
 			STableIngredients[curSandvichTable][3] = STableIngredients[curSandvichTable][3] - 1; 
 		}
-		RemItem(client, ingredientSandvich, 1);
+		GiveItem(client, ingredientSandvich, -1);
 	}else{
 		CPrintToChat(client, "{green}[TFRP]{default} You must be looking at a {mediumseagreen}Sandvich Table!");
 	}
@@ -2830,7 +3202,6 @@ public Action Timer_Sandvich(Handle timer, int client)
 	CPrintToChat(client, "{green}[TFRP]{default} You made a {mediumseagreen}Sandvich!");
 	return Plugin_Continue;
 }
-
 
 public int DeleteJobEnts(int client)
 {
@@ -2899,7 +3270,7 @@ public int AddFuelAustraliumDrill(int client)
 	}else{
 		AusFuels[curAusDrill] = AusFuels[curAusDrill] + FuelPerCan;
 		CPrintToChat(client, "{green}[TFRP]{default} Added {mediumseagreen}%d{default} fuel to the {mediumseagreen}Australium Drill", FuelPerCan);
-		RemItem(client, "Fuel", 1);
+		GiveItem(client, "Fuel", -1);
 	}
 
 	return 0;
@@ -3053,7 +3424,7 @@ public int AddAustraliumToCleaner(int client)
 	AusDirty[curAusCleaner]++;
 	CreateTimer(AustraliumCleanTime, Timer_AusCleaner, curAusCleaner);
 	TFRP_PrintToChat(client, "Added {mediumseagreen}Dirty Australium{default} to the {mediumseagreen}Australium Drill");
-	RemItem(client, "Dirty Australium", 1);
+	GiveItem(client, "Dirty Australium", -1);
 	return 0;
 }
 
@@ -3072,7 +3443,7 @@ public int AddCleanAusToPackage(int client)
 	{
 		AusPacks[curAusPackage]++;
 		TFRP_PrintToChat(client, "Added {mediumseagreen}Australium{default} to {mediumseagreen}Package");
-		RemItem(client, "Australium", 1);
+		GiveItem(client, "Australium", -1);
 	}else{
 		TFRP_PrintToChat(client, "There is already {mediumseagreen}5 Australium{default} in the {mediumseagreen}Package");
 	}
@@ -3157,7 +3528,6 @@ public int AddAusPackage(int index, int client)
 	AusPacksOwned[client]++;
 	return 0;
 }
-
 
 /////////////
 // Police //
@@ -3829,8 +4199,8 @@ public Action Timer_RobBank(Handle timer, int client)
 		return Plugin_Continue;
 	}
 	CPrintToChat(client, "{green}[TFRP]{default} You robbed the bank and recieved {mediumseagreen}%d!", bankWorth);
-	Cash[client] = Cash[client] + bankWorth;
-	SaveCash(client);
+	UD[client].iCash += bankWorth;
+	UpdateCash(client);
 	isBeingRobbed = false;
 	return Plugin_Continue;
 }
@@ -3966,7 +4336,7 @@ public void SetDoors()
 		CloseHandle(DB6);
 	}
 	
-	CPrintToChatAll("{green}[TFRP}{default} Done!");
+	CPrintToChatAll("{green}[TFRP]{default} Done!");
 }
 
 public Action Command_BuyDoor(int client, int args)
@@ -4027,10 +4397,10 @@ public Action Command_BuyDoor(int client, int args)
 		CloseHandle(DB);
 		
 		
-		if(Cash[client] >= DoorPrice)
+		if(UD[client].iCash  >= DoorPrice)
 		{
-			Cash[client] = Cash[client] - DoorPrice;
-			SaveCash(client);
+			UD[client].iCash -= DoorPrice;
+			UpdateCash(client);
 			// The Doors table will always hold the original owner
 			Doors[curLookingDoor] = client;
 			CPrintToChat(client, "{green}[TFRP]{default} You bought a door for {mediumseagreen}%d", DoorPrice);
@@ -4082,8 +4452,8 @@ public Action Command_SellDoor(int client, int args)
 		KvRewind(DB);
 		CloseHandle(DB);
 		
-		Cash[client] = Cash[client] + DoorPrice/2;
-		SaveCash(client);
+		UD[client].iCash += DoorPrice/2;
+		UpdateCash(client);
 		Doors[curLookingDoorSell] = -1;
 		DoorOwnedAmt[client] = DoorOwnedAmt[client] - 1;
 		for(int i = 0; i <= 4; i++)
@@ -4412,7 +4782,7 @@ public int Lockpick(int client)
 		CPrintToChat(client, "{green}[TFRP]{default} Lockpicking...");
 		isLockpicking[curLookingLockpickDoor] = client;
 		isLockpickingPlayers[client] = true;
-		RemItem(client, "Lockpick", 1);
+		GiveItem(client, "Lockpick", -1);
 		CreateTimer(lockpickTime, LockpickTimer, curLookingLockpickDoor);
 		CreateTimer(0.1, LockpickMove, curLookingLockpickDoor, TIMER_REPEAT);
 		return 0;	
@@ -4591,7 +4961,8 @@ public Action OnTakeDamagePrinter(int victim, int &attacker, int &inflictor, flo
 	
 	if(PrinterMoney[victim] > 0)
 	{
-		Cash[attacker] = Cash[attacker] + PrinterMoney[victim];
+		UD[attacker].iCash += PrinterMoney[victim];
+		UpdateCash(attacker); //Why was this not here before?
 		CPrintToChat(attacker, "{green}[TFRP]{default} You collected {mediumseagreen}%d {default} from the {mediumseagreen}printer", PrinterMoney[victim]);
 		PrinterMoney[victim] = 0;
 	}else{
@@ -4801,7 +5172,7 @@ public Action Command_SetLottery(int client, int args)
 		return Plugin_Handled;
 	}
 	
-	if(Cash[client] < LotAmt)
+	if(UD[client].iCash < LotAmt)
 	{
 		CPrintToChat(client, "{green}[TFRP]{default} You do not have {mediumseagreen}%d!", LotAmt);
 		return Plugin_Handled;
@@ -4842,7 +5213,8 @@ public Action Timer_Lottery(Handle timer, int client)
 		if(playingLot[GetRandomLot]) foundLotWinner = true;
 	}
 
-	Cash[GetRandomLot] = Cash[GetRandomLot] + LotAmt;
+	UD[GetRandomLot].iCash += LotAmt;
+	UpdateCash(GetRandomLot);
 	
 	char LotWinnerName[MAX_NAME_LENGTH];
 	GetClientName(GetRandomLot, LotWinnerName, sizeof(LotWinnerName));
@@ -4881,8 +5253,8 @@ public Action Command_JoinLottery(int client, int args)
 		return Plugin_Handled;
 	}
 	
-	Cash[client] = Cash[client] - LotAmt/2;
-	Cash[lotteryStarter] = Cash[lotteryStarter] + LotAmt/2;
+	UD[client].iCash -= LotAmt/2;
+	UD[lotteryStarter].iCash += LotAmt/2;
 	playingLot[client] = true;
 	
 	return Plugin_Handled;
@@ -4894,7 +5266,7 @@ public int CancelLottery()
 	{
 		if(playingLot[i])
 		{
-			Cash[i] = Cash[i] + LotAmt;
+			UD[i].iCash += LotAmt;
 			CPrintToChat(i, "{green}[TFRP]{default} You were refunded{mediumseagreen} %d{default} because the lottery was canceled");
 		}
 		
@@ -5232,4 +5604,28 @@ public Action Command_Goto(int client, int args)
 
 public Action Command_Teleport(int client, int args)
 {
+}
+
+//Full credits to Drixevel (SourceMod shop plugin) (Designed for handles)
+stock bool ClearArray2(Handle hGlobalArray)
+{
+	if (hGlobalArray != null)
+	{
+		for (int i = 0; i < GetArraySize(hGlobalArray); i++)
+		{
+			Handle hArray = GetArrayCell(hGlobalArray, i);
+			
+			if (hArray != null)
+			{
+				CloseHandle(hArray);
+				hArray = null;
+			}
+		}
+		
+		ClearArray(hGlobalArray);
+		
+		return true;
+	}
+	
+	return false;
 }
