@@ -529,7 +529,7 @@ public void ConnectSQL()
 	SQL_TConnect(SQLCall_ConnectToDatabase, "tfrp"); //Get's sql credentials from database.cfg. Pretty standard
 }
 
-public void StripToMelee(int client) //Thanks to JB Redux
+public void StripToMelee(int client) //Thanks to JB Redux (Scag, Drixvel and Nergal/Assyrian)
 	{
 	TF2_RemoveWeaponSlot(client, 0);
 	TF2_RemoveWeaponSlot(client, 1);
