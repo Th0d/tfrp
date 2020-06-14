@@ -1,4 +1,3 @@
-# tfrp
 TFRP v1.2.0 by Thod
 
 Thank you for downloading my Team Fortress Roleplay Mod!
@@ -7,10 +6,11 @@ All required plugins are on the AlliedModders page.
 ___________________________________________
 [ Installation ]
 
-	1. Dump every folder from tfrp_v1.2 into your server's tf folder
+	1. Dump every folder from tfrp_v1.1 into your server's tf folder
 	2. Restart your server if it's running
-	3. Configure everything to your liking (addons/sourcemod/configs/tfrp/cfg)
-	4. Done!
+	3. Enter your database's info into tf/addons/sourcemod/configs/database.cfg
+	4. Configure everything to your liking (addons/sourcemod/configs/tfrp/cfg)
+	5. Done!
 ___________________________________________
 
 [ Configuring ]
@@ -124,4 +124,3 @@ Special Thanks:
 TF2Maps.net
 AlliedModders <3
 ___________________________________________
-
