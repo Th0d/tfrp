@@ -8,10 +8,24 @@ ___________________________________________
 
 	1. Dump every folder from tfrp_v1.2 into your server's tf folder
 	2. Restart your server if it's running
-	3. Enter your database's info into tf/addons/sourcemod/configs/database.cfg
+	3. Enter database's info (See [Configuring Database] in this file)
 	4. Configure everything to your liking (addons/sourcemod/configs/tfrp/cfg)
 	5. Done!
 ___________________________________________
+
+[ Configuring Database ]
+Add this to tf/addons/sourcemod/configs/database.cfg
+
+	"tfrp"
+	{
+		"driver"			"default"
+		"host"				""
+		"database"			""
+		"user"				""
+		"pass"				""
+	}
+
+Enter your database information accordingly
 
 [ Configuring ]
 
@@ -97,6 +111,8 @@ v1.1.0
 *New array for ent's item type
 *Fixed bug related to using items
 *Shortened and improved lots of code related to money making systems
+
+v1.2.0
 
 ___________________________________________
 [  Credits  ]
