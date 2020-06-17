@@ -1,4 +1,4 @@
-TFRP v1.2.1 by Thod
+TFRP v1.2.2 by Thod
 
 Thank you for downloading my Team Fortress Roleplay Mod!
 All required plugins are on the AlliedModders page.
