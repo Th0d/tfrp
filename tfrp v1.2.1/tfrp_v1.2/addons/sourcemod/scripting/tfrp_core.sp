@@ -1,7 +1,7 @@
 #define PLUGIN_NAME 		"TF2 Roleplay Mod"
 #define PLUGIN_AUTHOR 		"Thod (SQL by The Illusion Squid)"
 #define PLUGIN_DESCRIPTION 	"Roleplay mod for TF2"
-#define PLUGIN_VERSION 		"1.2.1"
+#define PLUGIN_VERSION 		"1.2.2"
 #define PLUGIN_URL 			"https://github.com/Th0d/tfrp"
 
 #include <sourcemod>
@@ -49,8 +49,37 @@ enum
 	Prefix,
 	Debug,
 	SQLDebug,
+	StartCash,
+	StartJob,
+	SalTime,
+	JailTime,
+	LotTime,
+	WarrantTime,
+	SandvichMakeTime,
+	AustraliumDrillTime,
+	AustraliumCleanTime,
+	AustraliumFuelPerSecond,
+	FuelPerCan,
+	BankRobTime,
+	CopsToRob,
+	PrintTimeT1,
+	PrintTimeT2,
+	PrintTimeT3,
+	PrintT1Money,
+	PrintT2Money,
+	PrintT3Money,
+	MaxPrintersT1,
+	MaxPrintersT2,
+	MaxPrintersT3,
+	LockpickingTime,
+	TimeBetweenLot,
+	MaxLot,
+	MaxDoors,
+	MaxDroppedItems,
+	HitPrice,
+	ShopReturn,
 	Version
-}
+} //When adding new cvars, please put them above Version. Thanks - The Illusion Squid
 
 ConVar cvarTFRP[Version + 1];
 
@@ -84,16 +113,18 @@ Handle g_hSQL;
 
 enum struct UserData
 {
-	int iCash;
-	int iPlayTime;
-	int iJoinTime; 	//Timestamp of join event
-	int iLogTime; 	//Timestamp of last playtime update
-	char sJob[32]; 	//Job name
-	int iJobSalary;
-	bool bIsGov;
-	bool bArrested;
-	bool bBuyDoors;
-	bool bHasWarrent;
+	int iCash;			//Players cash
+	int iPlayTime;		//TOTAL playtime on the plugin
+	int iJoinTime;		//Timestamp of join event
+	int iLogTime;		//Timestamp of last playtime update
+	char sJob[255];		//Job name
+	int iJobSalary;		//Jobs salary
+	bool bGov;			//If the player is in a goverment job
+	bool bArrested;		//If the player is arrested
+	bool bLockpicking;	//If the player is lockpicking a door
+	bool bInLot;		//If the player is in the lotary
+	bool bOwnDoors;		//If the player can own doors
+	bool bHasWarrent;	//If the player has a warrent
 }
 UserData UD[MAXPLAYERS + 1]; 
 //Much cleaner way of storing user data then all separate variables -Squid
@@ -115,77 +146,29 @@ static char CategoryPath[PLATFORM_MAX_PATH];
 static char JailPath[PLATFORM_MAX_PATH];
 
 // Config variables
-int StartCash = 5000; // 5000 is default
-char StartJob[32] = "Citizen"; // Citizen is default
-float SalTime = 120.0; // 120.0 is default
-int ShopReturn = 2; // 2 is default
-float SandvichMakeTime = 60.0; // 60 is default
-
-// int maxnpcs = 10;
-
-int FuelPerCan = 100;
-float AustraliumDrillTime = 10.0; // 5.0 is default
-int FuelConsumptionPerSecond = 1; // 1 is default
-float AustraliumCleanTime = 10.0; // 5.0 is default
 
 int bankWorth = 0; // 0 is default
 int bankIndex = 0; // 0 is default
-float bankRobTime = 300.0; // 300.0 is default
 int bankRobHudTime = 300; // 300 is default
 bool isBeingRobbed = false; // false is default
-int CopsToRob = 2; // 2 is default
-
-float lockpickTime = 20.0; // 20.0 is default
-int maxDoors = 8; // 8 is default
-
-int maxDroppedItems = 10; // 10 is default
-
-float moneyPrintTimeTier1 = 60.0; // 60.0 is default
-float moneyPrintTimeTier2 = 60.0; // 60.0 is default
-float moneyPrintTimeTier3 = 60.0; // 60.0 is default
-
-int printerTier1MoneyPerPrint = 50; // 50 is default
-int printerTier2MoneyPerPrint = 135; // 135 is default
-int printerTier3MoneyPerPrint = 250; // 250 is default
-
-int maxPrintersTier1 = 3; // 3 default
-int maxPrintersTier2 = 3;
-int maxPrintersTier3 = 3;
-
-int HitPrice = 500; // 500 is default
-
-float JailTime = 120.0; // 120.0 is default
 
 int LotAmt = 0; // 0 is default
 int lotteryStarter = 0; // 0 is default
 bool isLottery = false; // false is default
 bool lotAvaliable = true; // true is default
 
-float timeBetweenLot = 600.0; // 600.0 is default
-float lotTime = 300.0; // 300.0 is default
-int maxLottery = 7500; // 7500 is default
-
-float WarrantTime = 300.0;
-
 // RP Globals
 
-static char Job[MAXPLAYERS + 1][255];
-static char CanOwnDoors[MAXPLAYERS + 1][255];
 static DroppedItems[MAXPLAYERS + 1] = {0,...};
 static char DroppedItemNames[2048][255];
-// static Crime[MAXPLAYERS + 1] = {0,...};
-static IsGov[MAXPLAYERS + 1] = {false,...};
 static char JailCells[10][255]; // Max 10 jail cells
 static Doors[2048] = {0,...};
 static DoorOwners[2048][5];
 static lockedDoor[2048] = {false,...};
-static isArrested[MAXPLAYERS + 1] = {false,...};
 static float JailTimes[MAXPLAYERS + 1] = {0.0,...};
 static isLockpicking[2048] = {0,...};
-static isLockpickingPlayers[MAXPLAYERS + 1] = {false,...};
 static DoorOwnedAmt[MAXPLAYERS + 1] = {0,...};
 static WelcomeHuds[MAXPLAYERS + 1] = {false,...};
-static HasWarrant[MAXPLAYERS + 1] = {false,...};
 static EntOwners[2048] = {0,...};
 static char EntItems[2048][255];
 // static Bank[MAXPLAYERS + 1] = {0,...};
@@ -220,8 +203,6 @@ static char EntItems[2048][255];
 		// static BlackjackPos[MAXPLAYERS + 1] = {0,...};
 	// Hitman
 		static Hits[MAXPLAYERS + 1] = {0,...};
-	// Lottery
-		static playingLot[MAXPLAYERS + 1] = {false,...};
 	// Laws
 		static char Laws[10][255];
 
@@ -254,10 +235,10 @@ public int Native_GetJobIndex(Handle plugin, int numParams)
 		char JobName[32];
 		KvGetSectionName(DB4, JobName, sizeof(JobName));
 		
-		if(StrEqual(JobName, Job[client])) break;
+		if(StrEqual(JobName, UD[client].sJob)) break;
 		
 		
-	} while (KvGotoNextKey(DB4,false));
+    } while (KvGotoNextKey(DB4,false));
 
 	CloseHandle(DB4);
 	
@@ -300,7 +281,7 @@ public int Native_IsGov(Handle plugin, int numParams)
 	int client = GetNativeCell(1);
 	if(client > 0 && IsClientInGame(client))
 	{
-		if(IsGov[client])
+		if(UD[client].bGov)
 		{
 			return 1;
 		}else{
@@ -444,12 +425,46 @@ public void OnPluginStart()
 	/////////////
 	
 	cvarTFRP[Version] = CreateConVar("sm_tfrp_version", PLUGIN_VERSION, PLUGIN_NAME, FCVAR_REPLICATED | FCVAR_NOTIFY | FCVAR_SPONLY | FCVAR_DONTRECORD);
-	cvarTFRP[AnnounceJobSwitch] = CreateConVar("tfrp_announce_job_switch", "1", "Enables/Disables announcing to all players when a player switches their job. (0 = disable)", FCVAR_NOTIFY);
+	cvarTFRP[AnnounceJobSwitch] = CreateConVar("tfrp_announce_job_switch", "1", "Enables/Disables announcing to all players when a player switches their job. (0 = disable)", FCVAR_NOTIFY, true, 0.0, true, 1.0);
 	cvarTFRP[Prefix] = CreateConVar("sm_tfrp_tableprefix", "tfrp", "Prefix for database tables. (Can be blank, however it is not recommended)", FCVAR_NOTIFY);
 	//You're welcome to those who only have one SQL database -The Illusion Squid
-	cvarTFRP[SQLDebug] = CreateConVar("sm_tfrp_sqldebug", "0", "Enables console debugging for TFRP SQL.", FCVAR_NOTIFY);
-	cvarTFRP[Debug] = CreateConVar("sm_tfrp_debug", "0", "Enables console debugging for TFRP General stuff.", FCVAR_NOTIFY);
+	cvarTFRP[SQLDebug] = CreateConVar("sm_tfrp_sqldebug", "0", "Enables console debugging for TFRP SQL.", FCVAR_NOTIFY, true, 0.0, true, 1.0);
+	cvarTFRP[Debug] = CreateConVar("sm_tfrp_debug", "0", "Enables console debugging for TFRP General stuff.", FCVAR_NOTIFY, true, 0.0, true, 1.0);
+	//////////////////////
+	// Game Config CVAR //
+	//////////////////////
+	cvarTFRP[StartCash] = CreateConVar("sm_tfrp_startingcash", "5000", "Ammount of money new players start with.", FCVAR_NOTIFY);
+	cvarTFRP[StartJob] = CreateConVar("sm_tfrp_startingjob", "Citizen", "The job players start as after connecting.", FCVAR_NOTIFY);
+	cvarTFRP[SalTime] = CreateConVar("sm_tfrp_saltime", "120.0", "Time in seconds for players to recieve their paycheck. (RN needs a restart to apply changes)", FCVAR_NOTIFY);
+	cvarTFRP[JailTime] = CreateConVar("sm_tfrp_jailtime", "120.0", "Jail time in seconds.", FCVAR_NOTIFY);
+	cvarTFRP[LotTime] = CreateConVar("sm_tfrp_lotterytime", "300.0", "Time lottery is on in seconds.", FCVAR_NOTIFY);
+	cvarTFRP[WarrantTime] = CreateConVar("sm_tfrp_warranttime", "300.0", "Time a warrant lasts in seconds.", FCVAR_NOTIFY);
+	cvarTFRP[SandvichMakeTime] = CreateConVar("sm_tfrp_sandvichmaketime", "60.0", "Time it takes to make a sandvich in seconds.", FCVAR_NOTIFY);
+	cvarTFRP[AustraliumDrillTime] = CreateConVar("sm_tfrp_austr_drilltime", "10.0", "Time between dirty australium being drilled.", FCVAR_NOTIFY);
+	cvarTFRP[AustraliumCleanTime] = CreateConVar("sm_tfrp_austr_cleantime", "10.0", "Time between dirty australium being cleaned.", FCVAR_NOTIFY);
+	cvarTFRP[AustraliumFuelPerSecond] = CreateConVar("sm_tfrp_fuelpersec", "1", "Fuel used by the australium drill per second.", FCVAR_NOTIFY);
+	cvarTFRP[FuelPerCan] = CreateConVar("sm_tfrp_fuelpercan", "100", "Fuel per fuelcan.", FCVAR_NOTIFY);
+	cvarTFRP[BankRobTime] = CreateConVar("sm_tfrp_bankrobtime", "300.0", "Time it takes to rob the bank in seconds.", FCVAR_NOTIFY);
+	cvarTFRP[CopsToRob] = CreateConVar("sm_tfrp_cops_to_rob", "2", "Ammount of cops required to rob the bank.", FCVAR_NOTIFY);
+	cvarTFRP[PrintTimeT1] = CreateConVar("sm_tfrp_printtime_t1", "60.0", "Time for bronze printers to print money.", FCVAR_NOTIFY);
+	cvarTFRP[PrintTimeT2] = CreateConVar("sm_tfrp_printtime_t2", "60.0", "Time for silver printers to print money.", FCVAR_NOTIFY);
+	cvarTFRP[PrintTimeT3] = CreateConVar("sm_tfrp_printtime_t3", "60.0", "Time for gold printers to print money.", FCVAR_NOTIFY);
+	cvarTFRP[PrintT1Money] = CreateConVar("sm_tfrp_printmoney_t1", "250", "Ammount of money printed by bronze printers.", FCVAR_NOTIFY);
+	cvarTFRP[PrintT2Money] = CreateConVar("sm_tfrp_printmoney_t2", "500", "Ammount of money printed by silver printers.", FCVAR_NOTIFY);
+	cvarTFRP[PrintT3Money] = CreateConVar("sm_tfrp_printmoney_t3", "1000", "Ammount of money printed by gold printers.", FCVAR_NOTIFY);
+	cvarTFRP[MaxPrintersT1] = CreateConVar("sm_tfrp_maxprinters_t1", "3", "Maximum ammount of bronze printers.", FCVAR_NOTIFY);
+	cvarTFRP[MaxPrintersT2] = CreateConVar("sm_tfrp_maxprinters_t2", "3", "Maximum ammount of silver printers.", FCVAR_NOTIFY);
+	cvarTFRP[MaxPrintersT3] = CreateConVar("sm_tfrp_maxprinters_t3", "3", "Maximum ammount of gold printers.", FCVAR_NOTIFY);
+	cvarTFRP[LockpickingTime] = CreateConVar("sm_tfrp_lockpickingtime", "20.0", "Time to lockpick a door in seconds.", FCVAR_NOTIFY);
+	cvarTFRP[TimeBetweenLot] = CreateConVar("sm_tfrp_timebetweenlottery", "600.0", "Time between lotteries in seconds.", FCVAR_NOTIFY);
+	cvarTFRP[MaxLot] = CreateConVar("sm_tfrp_maxlottery", "7500", "Maximum ammount a lottery can be worth. Change this as the money circulating the server increases.", FCVAR_NOTIFY);
+	cvarTFRP[MaxDoors] = CreateConVar("sm_tfrp_maxdoors", "8", "Maximum ammount of doors a player can own.", FCVAR_NOTIFY);
+	cvarTFRP[HitPrice] = CreateConVar("sm_tfrp_hitprice", "500", "Price to place a hit & ammount of money funded to hitman.", FCVAR_NOTIFY);cvarTFRP[MaxDroppedItems] = CreateConVar("sm_tfrp_maxdroppeditems", "10", "Maximum ammount of items dropped by a player. (NOTE: you don't want to set this too high, would risk lagging down the server.)", FCVAR_NOTIFY);
+	cvarTFRP[ShopReturn] = CreateConVar("sm_tfrp_shopreturn", "2", "The ratio of refund. (Calculation: OriginalPrize / ShopReturn)", FCVAR_NOTIFY);
 
+	//Execute the config file in /cfg/sourcemod/ or create one if it doesn't exist
+	AutoExecConfig(true, "tfrp"); 
+	
 	////////////////////////
 	// Register Commands //
 	///////////////////////
@@ -583,7 +598,7 @@ void SQLCall_ConnectToDatabase(Handle owner, Handle hndl, const char[] error, an
 	cvarTFRP[Prefix].GetString(prefix, sizeof(prefix));
 	if (prefix[0] != '\0')
 		StrCat(prefix, 16, "_");
-	//To keep the table names nice and clean. Default cvar will result in tfrp_user_info
+	//To keep the table names nice and clean. Default cvar will result in tfrp_user_info and tfrp_user_inventory
 	Format(sUserInfoTable, sizeof(sUserInfoTable), "%suser_info", prefix);
 	Format(sUserInvTable, sizeof(sUserInvTable), "%suser_inventory", prefix);
 
@@ -597,9 +612,23 @@ void SQLCall_ConnectToDatabase(Handle owner, Handle hndl, const char[] error, an
 	Format(sQuery, sizeof(sQuery), sQuery_CreateTable_UserInventory, sUserInvTable);
 	SQL_AddQuery(trans, sQuery);
 
-	SQL_ExecuteTransaction(g_hSQL, trans, SQL_Transaction_Success, SQL_Transaction_Failure, _, DB_PRIO);
+	SQL_ExecuteTransaction(g_hSQL, trans, SQL_Intial_Transaction_Success, SQL_Transaction_Failure, _, DB_PRIO);
 
 	PrintToServer("[TFRP] Successfully connected to database!");
+}
+
+void SQL_Intial_Transaction_Success(Handle db, DataPack data, int numQueries, Handle[] results, any[] queryData)
+{
+	if (cvarTFRP[SQLDebug].BoolValue)
+		LogMessage("[TFRP] Successfully created and executed Database Transaction with %d queries.", numQueries);
+	
+	for(int i=1; i<=MAXPLAYERS; i++)
+	{
+		if(!IsClientConnected(i) || IsFakeClient(i) || !IsClientAuthorized(i))
+			return;
+		
+		GetUserInfo(i);
+	}
 }
 
 void SQL_Transaction_Success(Handle db, DataPack data, int numQueries, Handle[] results, any[] queryData)
@@ -625,7 +654,7 @@ void RegisterNewUser(int iClient, int iPlayTime = 0)
 	SQL_EscapeString(g_hSQL, sName, safeName, sizeof(safeName)); //For heavens sake don't forget this
 
 	//Let's also cache the new user
-	UD[iClient].iCash = StartCash;
+	UD[iClient].iCash = cvarTFRP[StartCash].IntValue;
 	UD[iClient].iPlayTime = iPlayTime;
 	UD[iClient].iJoinTime = iTS;
 	UD[iClient].iLogTime = iTS;
@@ -638,7 +667,7 @@ void RegisterNewUser(int iClient, int iPlayTime = 0)
 		sUserInfoTable, 
 		sAuth,
 		safeName,
-		StartCash,
+		cvarTFRP[StartCash].IntValue,
 		iTS,
 		iPlayTime,
 		iTS
@@ -809,12 +838,16 @@ public void OnClientAuthorized(int iClient, const char[] sAuth)
 public void OnClientPutInServer(int client)
 {
 	// Load player's info when they connect and set their job to default.
-	UD[client].sJob = StartJob; //This was not yet converting fully. -Squid
+	char StartingJob[32];
+	cvarTFRP[StartJob].GetString(StartingJob, sizeof(StartingJob));
+	UD[client].sJob = StartingJob;
 	UD[client].iJobSalary = 50;
-	UD[client].bIsGov = false;
-	
-	Job[client] = StartJob;
-	IsGov[client] = false;
+	UD[client].bGov = false;
+	UD[client].bArrested = false;
+	UD[client].bLockpicking = false;
+	UD[client].bInLot = false;
+	UD[client].bOwnDoors = false;
+	UD[client].bHasWarrent = false;
 
 	// Team collision
 	SetEntProp(client, Prop_Data, "m_CollisionGroup", 0); 
@@ -865,7 +898,7 @@ public void OnClientPutInServer(int client)
 	CreateTimer(0.1, HUD, client, TIMER_REPEAT);
 
 	// Salary
-	CreateTimer(SalTime, Timer_Cash, client, TIMER_REPEAT);
+	CreateTimer(cvarTFRP[SalTime].FloatValue, Timer_Cash, client, TIMER_REPEAT);
 
 	// Aus Drill Hud
 	CreateTimer(0.1, Timer_AusHUD, client, TIMER_REPEAT);
@@ -903,77 +936,6 @@ public void LoadConfig(bool confreload)
 	hEngineConVar = FindConVar("tf_avoidteammates_pushaway");
 	SetConVarBool(hEngineConVar, true);
 	
-	Handle DB3 = CreateKeyValues("Config");
-	FileToKeyValues(DB3, ConfPath);
-
-	// Start cash
-	StartCash = KvGetNum(DB3, "Start Cash", 5000);
-
-	// Start job
-	KvGetString(DB3, "Start Job", StartJob, sizeof(StartJob), "Citizen");
-
-	// Paycheck time
-	SalTime = KvGetFloat(DB3, "Pay Time", 120.0);
-
-	// Shop return
-	ShopReturn = KvGetNum(DB3, "Shop Return", 2);
-
-	//// Sandvich //////
-
-	// Sandvich Make Time
-	SandvichMakeTime = KvGetFloat(DB3, "Sandvich Make Time", 60.0);
-
-	///// Bank /////
-	
-	// Bank Rob Time
-	bankRobTime = KvGetFloat(DB3, "Bank Rob Time", 300.0);
-
-	// Cops to rob
-	CopsToRob = KvGetNum(DB3, "Cops To Rob", 2);
-
-	//// Doors /////
-	
-	// Max Doors
-	maxDoors = KvGetNum(DB3, "MaxDoors", 8);
-	
-	// Lockpick time
-	lockpickTime = KvGetFloat(DB3, "Lockpick Time", 20.0);
-	
-	//// Printers //////
-	
-	// Bronze
-	printerTier1MoneyPerPrint = KvGetNum(DB3, "MoneyTier1Yield", 50);
-	moneyPrintTimeTier1 = KvGetFloat(DB3, "PrintTimeTier1", 60.0);
-	maxPrintersTier1 = KvGetNum(DB3, "MaxTier1Printers", 3);
-	// Silver
-	printerTier2MoneyPerPrint = KvGetNum(DB3, "MoneyTier2Yield", 50);
-	moneyPrintTimeTier2 = KvGetFloat(DB3, "PrintTimeTier2", 60.0);
-	maxPrintersTier2 = KvGetNum(DB3, "MaxTier2Printers", 3);
-	// Gold
-	printerTier3MoneyPerPrint = KvGetNum(DB3, "MoneyTier3Yield", 50);
-	moneyPrintTimeTier3 = KvGetFloat(DB3, "PrintTimeTier3", 60.0);
-	maxPrintersTier3 = KvGetNum(DB3, "MaxTier3Printers", 3);
-
-	// Australium //
-	AustraliumDrillTime = KvGetFloat(DB3, "Aus Drill Time", 10.0);
-	AustraliumCleanTime = KvGetFloat(DB3, "Aus Clean Time", 10.0);
-	FuelConsumptionPerSecond = KvGetNum(DB3, "Aus Fuel Consumption", 1);
-	
-	// Jail //
-	JailTime = KvGetFloat(DB3, "Jail Time", 120.0);
-
-	// Lottery
-	timeBetweenLot = KvGetFloat(DB3, "Time Between Lotteries", 600.0);
-	lotTime = KvGetFloat(DB3, "Lottery Time", 300.0);
-	maxLottery = KvGetNum(DB3, "Max Lottery", 7500);
-	
-	// Warrant
-	WarrantTime = KvGetFloat(DB3, "Warrant Time", 300.0);
-
-	CloseHandle(DB3);
-	
-	
-	
 	if(!confreload)
 	{
 		// Just some extra startup things
@@ -982,7 +944,7 @@ public void LoadConfig(bool confreload)
 			DroppedItemNames[i] = "__no__item__";
 			EntItems[i] = "__no__item__";
 			if(i < 10) JailCells[i] = "none";
-	
+			
 			DoorOwners[i][0] = 0;
 			DoorOwners[i][1] = 0;
 			DoorOwners[i][2] = 0;
@@ -1024,7 +986,7 @@ public Action OnPlayerDeath(Handle event, char[] name, bool dontBroadcast)
 		char GetKilledPlayerName[MAX_NAME_LENGTH];
 		GetClientName(victim, GetKilledPlayerName, sizeof(GetKilledPlayerName));
 		
-		UD[attacker].iCash += HitPrice;
+		UD[attacker].iCash += cvarTFRP[HitPrice].IntValue;
 		UpdateCash(attacker);
 		
 		CPrintToChatAll("{yellow}[TFRP ADVERT]{default} The hit on %s has been completed", GetKilledPlayerName);
@@ -1038,7 +1000,7 @@ public Action OnPlayerDeath(Handle event, char[] name, bool dontBroadcast)
 
 public Action onSwitchTeam(int client, char[] command, int argc)
 {
-	if(IsGov[client])
+	if(UD[client].bGov)
 	{
 		TF2_ChangeClientTeam( client, TFTeam_Blue );
 		CPrintToChat(client, "{green}[TFRP]{default} Government officals must be {blue}BLU!");
@@ -1099,8 +1061,6 @@ public void SavePlayerInfo(int client) //Maybe rename this function? -Squid
 	AusCleanersOwned[client] = 0;
 	AusPacksOwned[client] = 0;
 	
-	IsGov[client] = false;
-	isArrested[client] = false;
 	DoorOwnedAmt[client] = 0;
 	DroppedItems[client] = 0;
 	WelcomeHuds[client] = false;
@@ -1108,7 +1068,6 @@ public void SavePlayerInfo(int client) //Maybe rename this function? -Squid
 	BlackjackCards[client] = "none,none|none,none";
 	DeleteJobEnts(client);
 	DeleteHit(client);
-	HasWarrant[client] = false;
 	PrintersOwned[client][0] = 0;
 	PrintersOwned[client][1] = 0;
 	PrintersOwned[client][2] = 0;
@@ -1137,7 +1096,7 @@ public void SavePlayerInfo(int client) //Maybe rename this function? -Squid
 		}
 	}
 	
-	if(StrEqual(Job[client], "Mayor") && isLottery == true)
+	if(StrEqual(UD[client].sJob, "Mayor") && isLottery == true)
 	{
 		CPrintToChatAll("{yellow}[TFRP ADVERT]{default} Mayor left, canceling lottery and refunding participants");
 		CancelLottery();
@@ -1162,9 +1121,9 @@ public Action Command_SetCash(int client, int args)
 	{
 		if(StrEqual(Arg2, "default"))
 		{
-		UD[client].iCash = StartCash;
+		UD[client].iCash = cvarTFRP[StartCash].IntValue;
 		UpdateCash(client);
-		CPrintToChat(client, "{green}[TFRP]{default} Set your balance to {mediumseagreen}%d", StartCash);
+		CPrintToChat(client, "{green}[TFRP]{default} Set your balance to {mediumseagreen}%d", cvarTFRP[StartCash].IntValue);
 		return Plugin_Handled;
 		}else{
 			UD[client].iCash = StringToInt(Arg2);
@@ -1184,12 +1143,12 @@ public Action Command_SetCash(int client, int args)
 
 			if(StrEqual(curNameSetCash, Arg1)){
 				if(StrEqual(Arg2, "default")){
-					UD[client].iCash = StartCash;
+					UD[client].iCash = cvarTFRP[StartCash].IntValue;
 					UpdateCash(i);
 					if(client>0){
-						CPrintToChat(client, "{green}[TFRP]{default} Set {goldenrod}%s\'s {default}balance to {mediumseagreen}%d", curNameSetCash, StartCash);
+						CPrintToChat(client, "{green}[TFRP]{default} Set {goldenrod}%s\'s {default}balance to {mediumseagreen}%d", curNameSetCash, cvarTFRP[StartCash].IntValue);
 					}else{
-						PrintToServer("[TFRP] Set %s\'s balance to %d", curNameSetCash, StartCash);
+						PrintToServer("[TFRP] Set %s\'s balance to %d", curNameSetCash, cvarTFRP[StartCash].IntValue);
 					}
 				}else{
 					UD[client].iCash = StringToInt(Arg2);
@@ -1198,7 +1157,7 @@ public Action Command_SetCash(int client, int args)
 					{
 						CPrintToChat(client, "{green}[TFRP]{default} Set {goldenrod}%s\'s {default}balance to {mediumseagreen}%d", curNameSetCash, StringToInt(Arg2));
 					}else{
-						PrintToServer("[TFRP] Set %s\'s balance to %d", curNameSetCash, StartCash);
+						PrintToServer("[TFRP] Set %s\'s balance to %d", curNameSetCash, cvarTFRP[StartCash].IntValue);
 					}
 				}
 			
@@ -1219,7 +1178,7 @@ public Action Timer_Cash(Handle timer, int client)
 	if(!IsClientInGame(client)) return Plugin_Continue;
 	if(IsFakeClient(client)) return Plugin_Continue;
        	
-	if(isArrested[client])
+	if(UD[client].bArrested)
 	{
 		CPrintToChat(client, "{green}[TFRP]{default} You didn't get paid since you're arrested");
 		return Plugin_Continue;
@@ -1238,12 +1197,12 @@ public Action Timer_NoExploit(Handle timer, int client)
 	if(!IsClientInGame(client)) return Plugin_Continue;
 	for(int i = 0; i <= 2047; i++)
 	{
-		if(Doors[i] == client && IsGov[client])
+		if(Doors[i] == client && UD[client].bGov)
 		{
 			Doors[i] = -1;
 			DoorOwnedAmt[client] = DoorOwnedAmt[client] - 1;
 		}
-		if(EntOwners[i] == client && isPrinter[i] && IsGov[client] && !StrEqual(Job[client], "Mayor"))
+		if(EntOwners[i] == client && isPrinter[i] && UD[client].bGov && !StrEqual(UD[client].sJob, "Mayor"))
 		{
 			PrinterMoney[i] = 0;
 			PrintersOwned[client][PrinterTier[i]-1] = PrintersOwned[client][PrinterTier[i]-1] - 1;
@@ -1271,12 +1230,12 @@ public int MenuCallBackJob(Handle menuhandle, MenuAction action, int Client, int
 			
 		GetMenuItem(menuhandle, Position, Item, sizeof(Item));
 		// See if their already that job.
-		if(StrEqual(Job[Client], Item)){
+		if(StrEqual(UD[Client].sJob, Item)){
 			CPrintToChat(Client, "{green}[TFRP]{default} Your job is already {mediumseagreen}%s", Item);
 		}else{
 
 		// Cancel lottery if they had one running
-		if(StrEqual(Job[Client], "Mayor") && isLottery == true)
+		if(StrEqual(UD[Client].sJob, "Mayor") && isLottery == true)
 		{
 			CPrintToChatAll("{yellow}[TFRP ADVERT]{default} Mayor switched jobs, canceling lottery and refunding participants");
 			CancelLottery();
@@ -1288,16 +1247,16 @@ public int MenuCallBackJob(Handle menuhandle, MenuAction action, int Client, int
 
 		if(KvJumpToKey(DB4, Item, false)){
 		// Will detect if admin later
-			Job[Client] = Item;
+			UD[Client].sJob = Item;
 			UD[Client].iJobSalary = KvGetNum(DB4, "Salary", 50); // If there isn't a salary it'll just be set to 50
 			char IsPoliceStr[8];
 			KvGetString(DB4, "IsGov", IsPoliceStr, sizeof(IsPoliceStr), "false");
 			if(StrEqual(IsPoliceStr, "true"))
 			{
-				IsGov[Client] = true;
+				UD[Client].bGov = true;
 				TF2_ChangeClientTeam(Client, TFTeam_Blue);
 			}else{
-				IsGov[Client] = false;
+				UD[Client].bGov = false;
 				TF2_ChangeClientTeam(Client, TFTeam_Red);
 			}
 			
@@ -1305,7 +1264,12 @@ public int MenuCallBackJob(Handle menuhandle, MenuAction action, int Client, int
 			
 			char CanOwnDoorsStr[8];
 			KvGetString(DB4, "CanOwnDoors", CanOwnDoorsStr, sizeof(CanOwnDoorsStr), "true");
-			CanOwnDoors[Client] = CanOwnDoorsStr;
+			if(StrEqual(CanOwnDoorsStr, "false"))
+			{
+				UD[Client].bOwnDoors = false;
+			} else {
+				UD[Client].bOwnDoors = true;
+			}
 			KvRewind(DB4);
 			if(cvarTFRP[AnnounceJobSwitch].BoolValue){
 				CPrintToChatAll("{green}[TFRP]{goldenrod} %s{default} set their job to {mediumseagreen}%s", name, Item);
@@ -1417,7 +1381,7 @@ public int MenuCallBackNextShop(Handle menuhandle, MenuAction action, int Client
 									char GetJobRequireBuy[32];
 									KvGetString(DB2, NULL_STRING, GetJobRequireBuy, sizeof(GetJobRequireBuy));
 								
-									if(StrEqual(GetJobRequireBuy, "any") || StrEqual(GetJobRequireBuy, Job[Client]))
+									if(StrEqual(GetJobRequireBuy, "any") || StrEqual(GetJobRequireBuy, UD[Client].sJob))
 									{
 										GiveItem(Client, ItemInfoNamePrice[0], 1);
 					
@@ -1455,7 +1419,7 @@ public int MenuCallBackNextShop(Handle menuhandle, MenuAction action, int Client
 					
 					if(StrEqual(IsPrinterBuy, "true"))
 					{
-						if(IsGov[Client] && StrEqual(Job[Client], "Mayor") || !IsGov[Client])
+						if((UD[Client].bGov && StrEqual(UD[Client].sJob, "Mayor")) || !UD[Client].bGov)
 						{
 							GiveItem(Client, ItemInfoNamePrice[0], 1);
 					
@@ -1471,7 +1435,7 @@ public int MenuCallBackNextShop(Handle menuhandle, MenuAction action, int Client
 				}
 		
 			} else if(StrEqual(CmdShop, "sel")){
-				SellItem(Client, ItemInfoNamePrice[0], StringToInt(ItemInfoNamePrice[1])/ShopReturn);
+				SellItem(Client, ItemInfoNamePrice[0], StringToInt(ItemInfoNamePrice[1])/cvarTFRP[ShopReturn].IntValue);
 				
 			}
 		}
@@ -1757,7 +1721,7 @@ public int MenuCallBackHitman(Handle menuhandle, MenuAction action, int Client, 
 public int HitmanNextMenu(int client, char NextHitPlaceName[MAX_NAME_LENGTH], int Hitman)
 {
 	Handle menuhandle = CreateMenu(MenuCallBackNextHitman);
-	SetMenuTitle(menuhandle, "[TFRP] Place hit on %s for %d?", NextHitPlaceName, HitPrice);
+	SetMenuTitle(menuhandle, "[TFRP] Place hit on %s for %d?", NextHitPlaceName, cvarTFRP[HitPrice].IntValue);
 
 	int HitVictimId = 0;
 
@@ -1787,7 +1751,7 @@ public int MenuCallBackNextHitman(Handle menuhandle, MenuAction action, int Clie
 {
 	if(action == MenuAction_Select)
 	{
-		if(UD[Client].iCash  < HitPrice)
+		if(UD[Client].iCash  < cvarTFRP[HitPrice].IntValue)
 		{
 			CPrintToChat(Client, "{green}[TFRP]{default} Insufficent funds");
 		}else{
@@ -1809,7 +1773,7 @@ public int MenuCallBackNextHitman(Handle menuhandle, MenuAction action, int Clie
 			FormatEx(GetHitmanAndHitName, sizeof(GetHitmanAndHitName), "%s:%s", curPlacerHit, curHitman);
 
 			Hits[StringToInt(SplitHitmanHitPlacer[0])] = curHitVictim;
-			UD[curPlacerHit].iCash -= HitPrice;
+			UD[curPlacerHit].iCash -= cvarTFRP[HitPrice].IntValue;
 			
 			char GetHitPlacerName[MAX_NAME_LENGTH];
 			GetClientName(curPlacerHit, GetHitPlacerName, sizeof(GetHitPlacerName));
@@ -1817,8 +1781,8 @@ public int MenuCallBackNextHitman(Handle menuhandle, MenuAction action, int Clie
 			char GetHitVictimName[MAX_NAME_LENGTH];
 			GetClientName(curHitVictim, GetHitVictimName, sizeof(GetHitVictimName));
 			
-			CPrintToChat(curPlacerHit, "{green}[TFRP]{default} You set a hit on {mediumseagreen}%s{default} for{mediumseagreen} %d", GetHitVictimName, HitPrice);
-			CPrintToChat(curHitman, "{green}[TFRP]{default} {mediumseagreen}%s set a hit on {mediumseagreen}%s for {mediumseagreen}%d", GetHitPlacerName, GetHitVictimName, HitPrice);
+			CPrintToChat(curPlacerHit, "{green}[TFRP]{default} You set a hit on {mediumseagreen}%s{default} for{mediumseagreen} %d", GetHitVictimName, cvarTFRP[HitPrice].IntValue);
+			CPrintToChat(curHitman, "{green}[TFRP]{default} {mediumseagreen}%s set a hit on {mediumseagreen}%s for {mediumseagreen}%d", GetHitPlacerName, GetHitVictimName, cvarTFRP[HitPrice].IntValue);
 			
 		}
 			
@@ -1856,6 +1820,7 @@ public int MenuCallBackGiveKeys(Handle menuhandle, MenuAction action, int client
 				alreadyKeys = true;
 			}
 		}
+
 		if(!alreadyKeys)
 		{
 			for(int i = 0; i <= 4; i++)
@@ -1868,7 +1833,6 @@ public int MenuCallBackGiveKeys(Handle menuhandle, MenuAction action, int client
 				}
 			}
 		}
-	
 	} else if(action == MenuAction_End)
 	{
 		CloseHandle(menuhandle);
@@ -1888,7 +1852,7 @@ public int MenuCallBackRemKeys(Handle menuhandle, MenuAction action, int client,
 		
 		char RemKeysNameAndDoor[256][256];
 		ExplodeString(RemkeysIndexAndName[1], "-", RemKeysNameAndDoor, 2, sizeof(RemKeysNameAndDoor));
-
+		
 		int RemKeysIndex = StringToInt(RemkeysIndexAndName[0]);
 		int RemKeysDoor = StringToInt(RemKeysNameAndDoor[1]);
 		bool alreadyKeys = false;
@@ -1932,14 +1896,14 @@ public int MenuCallBackWarrant(Handle menuhandle, MenuAction action, int client,
 				
 				if(StrEqual(GetSetWarrantName, WarrantSetName))
 				{
-					if(HasWarrant[i])
+					if(UD[i].bHasWarrent)
 					{
 						CPrintToChat(client, "{green}[TFRP]{default} This player already has a warrant!");
 						break;
 					}
-					HasWarrant[i] = true;
+					UD[i].bHasWarrent = true;
 					SetWarrantHud(i);
-					CreateTimer(WarrantTime, Timer_Warrant, i);
+					CreateTimer(cvarTFRP[WarrantTime].FloatValue, Timer_Warrant, i);
 					
 				}
 			
@@ -1963,9 +1927,9 @@ public Action PlayerSpawn(Event event, char[] name, bool dontBroadcast)
 	Handle DB = CreateKeyValues("Jobs");
 	FileToKeyValues(DB, JobPath);
 
-	if(!isArrested[client])
+	if(!UD[client].bArrested)
 	{
-		if(KvJumpToKey(DB, Job[client], false))
+		if(KvJumpToKey(DB, UD[client].sJob, false))
 		{
 			if(KvJumpToKey(DB, "StartWeapons", false))
 			{	
@@ -1992,13 +1956,13 @@ public Action PlayerSpawn(Event event, char[] name, bool dontBroadcast)
 	
 	// Spawn protection
     
-	if(!isArrested[client])
+	if(!UD[client].bArrested)
 	{
 		TF2_AddCondition(client, TFCond_Ubercharged, 5.0);
 		TF2_AddCondition(client, TFCond_MegaHeal, 5.0);
 	}
 	
-	if(isArrested[client])
+	if(UD[client].bArrested)
 	{
 		Arrest(-90, client);
 	}
@@ -2011,7 +1975,7 @@ public Action SetMaxHealth(int client, int &maxhealth)
 {
 	Handle DB = CreateKeyValues("Jobs");
 	FileToKeyValues(DB, JobPath);
-	if(KvJumpToKey(DB, Job[client], false))
+	if(KvJumpToKey(DB, UD[client].sJob, false))
 	{
 		maxhealth = KvGetNum(DB, "MaxHealth", 150);
 		KvRewind(DB);
@@ -2072,7 +2036,7 @@ public int SpawnInv(int client, char[] ent)
 			char IsPrinterSpawn[32];
 			KvGetString(DB2, "IsPrinter", IsPrinterSpawn, sizeof(IsPrinterSpawn), "false");
 			
-			if(StrEqual(IsPrinterSpawn, "true") && IsGov[client] && !StrEqual(Job[client], "Mayor"))
+			if(StrEqual(IsPrinterSpawn, "true") && UD[client].bGov && !StrEqual(UD[client].sJob, "Mayor"))
 			{
 				CPrintToChat(client, "{green}[TFRP]{default} Government Officals cannot spawn {mediumseagreen}printers! {default}(Except the Mayor)");
 				return 0;
@@ -2107,7 +2071,7 @@ public int SpawnInv(int client, char[] ent)
 							char GetJobRequireBuy[32];
 							KvGetString(DB2, NULL_STRING, GetJobRequireBuy, sizeof(GetJobRequireBuy));
 							
-							if(StrEqual(GetJobRequireBuy, "any") || StrEqual(GetJobRequireBuy, Job[client]))
+							if(StrEqual(GetJobRequireBuy, "any") || StrEqual(GetJobRequireBuy, UD[client].sJob))
 							{
 								FoundJobSpawn = true;
 							}
@@ -2464,7 +2428,7 @@ public int UseItem(int client, char[] ItemUse)
 					char GetJobRequireBuy[32];
 					KvGetString(DB2, NULL_STRING, GetJobRequireBuy, sizeof(GetJobRequireBuy));
 							
-					if(StrEqual(GetJobRequireBuy, "any") || StrEqual(GetJobRequireBuy, Job[client]))
+					if(StrEqual(GetJobRequireBuy, "any") || StrEqual(GetJobRequireBuy, UD[client].sJob))
 					{
 						FoundJobUse = true;
 					}
@@ -2555,9 +2519,9 @@ public int DropItem(int client, char[] ItemDrop)
 	}
 
 
-	if(DroppedItems[client] >= maxDroppedItems)
+	if(DroppedItems[client] >= cvarTFRP[MaxDroppedItems].IntValue)
 	{
-		CPrintToChat(client, "{green}[TFRP]{default} You can only have 10 dropped items.");
+		CPrintToChat(client, "{green}[TFRP]{default} You can only have %d dropped items.", cvarTFRP[MaxDroppedItems].IntValue);
 		return 0;
 	}
 	
@@ -2779,7 +2743,7 @@ public Action Command_JOB(int client, int args)
 		return Plugin_Handled;
 	}
 	
-	if(isArrested[client])
+	if(UD[client].bArrested)
 	{
 		CPrintToChat(client, "{green}[TFRP]{default} You cannot do sm_job while arrested.");
 		return Plugin_Handled;
@@ -2882,7 +2846,7 @@ public Action Command_GiveMoneyPtoP(int client, int args)
 public Action Command_BUYMENU(int client, int args)
 {
 	
-	if(isArrested[client])
+	if(UD[client].bArrested)
 	{
 		CPrintToChat(client, "{green}[TFRP]{default} You cannot do /shop while arrested.");
 		return Plugin_Handled;
@@ -2941,7 +2905,7 @@ public Action Command_Setjob(int client, int args)
 	char SetJobArg2[32];
 	GetCmdArg(1, SetJobArg2, sizeof(SetJobArg2));
 		
-	Job[client] = SetJobArg2;
+	UD[client].sJob = SetJobArg2;
 	}else{
 		char NameSetJob[48];
 		GetCmdArgString(NameSetJob, sizeof(NameSetJob));
@@ -2961,7 +2925,7 @@ public Action Command_Setjob(int client, int args)
 						GetClientName(i, FindTargetSetJob, sizeof(FindTargetSetJob));
 						if(StrEqual(FindTargetSetJob, SeperateNameJob[0]))
 						{
-							Job[i] = SeperateNameJob[1];
+							UD[i].sJob = SeperateNameJob[1];
 						}
 					}
 				}
@@ -3044,7 +3008,7 @@ public Action HUD(Handle timer, int client)
 	if(IsFakeClient(client)) return Plugin_Continue;
 
 	char HudJob[32];
-	FormatEx(HudJob, sizeof(HudJob), "Job: %s", Job[client]);
+	FormatEx(HudJob, sizeof(HudJob), "Job: %s", UD[client].sJob);
 	char HudCash[32];
 	FormatEx(HudCash, sizeof(HudCash), "Cash: %d", UD[client].iCash);
 	char HudSalary[32];
@@ -3085,7 +3049,7 @@ public Action WelcomeHUDStop(Handle timer, int client)
 
 public Action Command_INVENTORY(int client, int args)
 {
-	if(isArrested[client])
+	if(UD[client].bArrested)
 	{
 		CPrintToChat(client, "{green}[TFRP]{default} You cannot access your invenotry while arrested.");
 		return Plugin_Handled;
@@ -3217,8 +3181,8 @@ public int AddIngredientSandvich(int client, char[] ingredientSandvich)
 		TFRP_PrintToChat(client, "Added {mediumseagreen}1 %s{default} to the {mediumseagreen}Sandvicuh Table",ingredientSandvich);
 		if(STableIngredients[curSandvichTable][0] >= 1 && STableIngredients[curSandvichTable][1] >= 1 >= STableIngredients[curSandvichTable][2] >= 1 && STableIngredients[curSandvichTable][3] >= 1)
 		{
-			TFRP_PrintToChat(client, "All ingredients have been added to the table, making {mediumseagreen}Sandvich{default} in {mediumseagreen}%f{default} seconds", SandvichMakeTime);
-			CreateTimer(SandvichMakeTime, Timer_Sandvich, client);
+			TFRP_PrintToChat(client, "All ingredients have been added to the table, making {mediumseagreen}Sandvich{default} in {mediumseagreen}%f{default} seconds", cvarTFRP[SandvichMakeTime].FloatValue);
+			CreateTimer(cvarTFRP[SandvichMakeTime].FloatValue, Timer_Sandvich, client);
 			STableIngredients[curSandvichTable][0] = STableIngredients[curSandvichTable][0] - 1;
 			STableIngredients[curSandvichTable][1] = STableIngredients[curSandvichTable][1] - 1; 
 			STableIngredients[curSandvichTable][2] = STableIngredients[curSandvichTable][2] - 1; 
@@ -3264,7 +3228,7 @@ public int DeleteJobEnts(int client)
 							char GetJobReqDel[32];
 							KvGetString(DB, NULL_STRING, GetJobReqDel, sizeof(GetJobReqDel));
 							
-							if(StrEqual(GetJobReqDel, "any") || StrEqual(GetJobReqDel, Job[client]))
+							if(StrEqual(GetJobReqDel, "any") || StrEqual(GetJobReqDel, UD[client].sJob))
 							{
 								FoundJobDel = true;
 							}
@@ -3305,8 +3269,8 @@ public int AddFuelAustraliumDrill(int client)
 	{
 		TFRP_PrintToChat(client, "You must be looking at an {mediumseagreen}Australium Drill!");
 	}else{
-		AusFuels[curAusDrill] = AusFuels[curAusDrill] + FuelPerCan;
-		CPrintToChat(client, "{green}[TFRP]{default} Added {mediumseagreen}%d{default} fuel to the {mediumseagreen}Australium Drill", FuelPerCan);
+		AusFuels[curAusDrill] = AusFuels[curAusDrill] + cvarTFRP[FuelPerCan].IntValue;
+		CPrintToChat(client, "{green}[TFRP]{default} Added {mediumseagreen}%d{default} fuel to the {mediumseagreen}Australium Drill", cvarTFRP[FuelPerCan].IntValue);
 		GiveItem(client, "Fuel", -1);
 	}
 
@@ -3318,7 +3282,7 @@ public Action Timer_AusDrillFuelTimer(Handle timer, int curAusDrillFuelTimer)
 {
 	if(curAusDrillFuelTimer == -1 || !IsValidEntity(curAusDrillFuelTimer) || !StrEqual(EntItems[curAusDrillFuelTimer], "Australium Drill")) return Plugin_Continue;
 	{
-		if(AusFuels[curAusDrillFuelTimer] > 0) AusFuels[curAusDrillFuelTimer] = AusFuels[curAusDrillFuelTimer] - FuelConsumptionPerSecond;	
+		if(AusFuels[curAusDrillFuelTimer] > 0) AusFuels[curAusDrillFuelTimer] = AusFuels[curAusDrillFuelTimer] - cvarTFRP[AustraliumFuelPerSecond].IntValue;	
 	}
 	return Plugin_Continue;
 }
@@ -3344,7 +3308,7 @@ public Action OnTakeDamageAusDrill(int victim, int &attacker, int &inflictor, fl
 	if(!StrEqual(EntItems[victim], "Australium Drill")) return Plugin_Continue;
 	
 	// Only Australium Miners can use drills
-	if(StrEqual(Job[attacker], "Australium Miner"))
+	if(StrEqual(UD[attacker].sJob, "Australium Miner"))
 	{
 		if(AusMined[victim] > 0)
 		{
@@ -3391,7 +3355,7 @@ public Action OnTakeDamageAusCleaner(int victim, int &attacker, int &inflictor, 
 	if(!StrEqual(EntItems[victim], "Australium Cleaner")) return Plugin_Continue;
 	
 	// Only Australium Miners can use cleaners
-	if(StrEqual(Job[attacker], "Australium Miner"))
+	if(StrEqual(UD[attacker].sJob, "Australium Miner"))
 	{	
 		if(AusClean[victim] <= 0)
 		{
@@ -3459,7 +3423,7 @@ public int AddAustraliumToCleaner(int client)
 	}
 	
 	AusDirty[curAusCleaner]++;
-	CreateTimer(AustraliumCleanTime, Timer_AusCleaner, curAusCleaner);
+	CreateTimer(cvarTFRP[AustraliumCleanTime].FloatValue, Timer_AusCleaner, curAusCleaner);
 	TFRP_PrintToChat(client, "Added {mediumseagreen}Dirty Australium{default} to the {mediumseagreen}Australium Drill");
 	GiveItem(client, "Dirty Australium", -1);
 	return 0;
@@ -3491,17 +3455,15 @@ public Action OnTakeDamageAusPackage(int victim, int &attacker, int &inflictor, 
 {
 	if(!StrEqual(EntItems[victim], "Empty Package")) return Plugin_Continue;
 	// Only Australium Miners can use packages
-	if(StrEqual(Job[attacker], "Australium Miner"))
+	if(StrEqual(UD[attacker].sJob, "Australium Miner"))
 	{
 		if(AusPacks[victim] == 5)
 		{
-			
 			GiveItem(attacker, "Full Australium Package", 1);
 			TFRP_PrintToChat(attacker, "You picked up {mediumseagreen}Full Australium Package");
 			AusPacks[victim] = 0;
-			AusPacksOwned[attacker] += -1;
+			AusPacksOwned[attacker] -= 1;
 			TFRP_DeleteEnt(victim);
-			
 		}else{
 			TFRP_PrintToChat(attacker, "There must be {mediumseagreen}5 Australium{default} in the {mediumseagreen}package{default} to pick it up");
 		}
@@ -3529,7 +3491,7 @@ public int AddAusDrill(int index, int client)
 	AusFuels[index] = 0;
 	AusDrillsOwned[client]++;
 
-	CreateTimer(AustraliumDrillTime, Timer_AusDrill, index, TIMER_REPEAT);
+	CreateTimer(cvarTFRP[AustraliumDrillTime].FloatValue, Timer_AusDrill, index, TIMER_REPEAT);
 	CreateTimer(1.0, Timer_AusDrillFuelTimer, index, TIMER_REPEAT);
 
 	SDKHookEx(index, SDKHook_OnTakeDamage, OnTakeDamageAusDrill);
@@ -3609,9 +3571,9 @@ public void SetJails()
 
 public int Arrest(int client, int arrestTarget)
 {
-	if(!IsGov[arrestTarget]){
+	if(!UD[arrestTarget].bGov){
 
-		if(isArrested[arrestTarget] && client != -90)
+		if(UD[arrestTarget].bArrested && client != -90)
 		{
 			CPrintToChat(client, "{green}[TFRP]{default} Player is already arrested!");
 			return 0;
@@ -3671,13 +3633,13 @@ public int Arrest(int client, int arrestTarget)
 			CPrintToChat(client, "{green}[TFRP]{goldenrod} %s{default} was sent to jail cell {mediumseagreen}%d", targetName, GetRandom);
 		
 			CPrintToChat(arrestTarget, "{green}[TFRP]{default} You were arrested by {goldenrod}%s", copName);
-			isArrested[arrestTarget] = true;
+			UD[arrestTarget].bArrested = true;
 			
-			JailTimes[arrestTarget] = JailTime;
+			JailTimes[arrestTarget] = cvarTFRP[JailTime].FloatValue;
 			
 			CreateTimer(1.0, Timer_JailTime, arrestTarget, TIMER_REPEAT);
 			CreateTimer(0.1, Timer_JailHud, arrestTarget, TIMER_REPEAT);
-			CreateTimer(JailTime, Timer_Jail, arrestTarget);
+			CreateTimer(cvarTFRP[JailTime].FloatValue, Timer_Jail, arrestTarget);
 			
 		}
 		return 0;
@@ -3689,13 +3651,13 @@ public int Arrest(int client, int arrestTarget)
 
 public Action Command_Arrest(int client, int args)
 {
-	if(!IsGov[client])
+	if(!UD[client].bGov)
 	{
 		CPrintToChat(client, "{green}[TFRP]{default} You must be a {mediumseagreen}Government Offical{default} to arrest people!");
 		return Plugin_Handled;
 	}
 	
-	if(StrEqual(Job[client],"Mayor"))
+	if(StrEqual(UD[client].sJob,"Mayor"))
 	{
 		CPrintToChat(client, "{green}[TFRP]{default} Mayor cannot arrest people!");
 		return Plugin_Handled;
@@ -3738,14 +3700,14 @@ public Action Command_Arrest(int client, int args)
 
 public Action Command_PoliceRadio(int client, int args)
 {
-	if(!IsGov[client])
+	if(!UD[client].bGov)
 	{
 		CPrintToChat(client, "{green}[TFRP]{default} You must be a {mediumseagreen}Government Offical{default} to use {mediumseagreen}Police Radio.");
 	}
 	
 	for(int i = 0; i <= MaxClients + 1; i++)
 	{
-		if(IsGov[i])
+		if(UD[i].bGov)
 		{
 			char FullPoliceMessage[128];
 			GetCmdArgString(FullPoliceMessage, sizeof(FullPoliceMessage));
@@ -3764,7 +3726,7 @@ public Action Command_PoliceRadio(int client, int args)
 // Arrest timer
 public Action Timer_Jail(Handle timer, int client)
 {
-	isArrested[client] = false;
+	UD[client].bArrested = false;
 	JailTimes[client] = 0.0;
 	ForcePlayerSuicide(client);
 	CPrintToChat(client, "{green}[TFRP]{default} You've served your sentance");
@@ -3776,7 +3738,7 @@ public Action Timer_JailHud(Handle timer, int client)
 {
 	if(!IsClientInGame(client)) return Plugin_Continue;
 	if(IsFakeClient(client)) return Plugin_Continue;
-	if(!isArrested[client]) return Plugin_Continue;
+	if(!UD[client].bArrested) return Plugin_Continue;
 	
 	char ArrestHudTime[32];
 	FormatEx(ArrestHudTime, sizeof(ArrestHudTime), "Jail Time: %f", JailTimes[client]);
@@ -3788,7 +3750,7 @@ public Action Timer_JailHud(Handle timer, int client)
 
 public Action Timer_JailTime(Handle timer, int client)
 {
-	if(!isArrested[client]) return Plugin_Continue;
+	if(!UD[client].bArrested) return Plugin_Continue;
 	JailTimes[client] -= 1.0;
 	return Plugin_Continue;
 }
@@ -4188,7 +4150,7 @@ public Action Command_CreateBankVault(int client, int args)
 
 public Action Command_RobBank(int client, int args)
 {
-	if(!StrEqual(Job[client], "Bank Robber"))
+	if(!StrEqual(UD[client].sJob, "Bank Robber"))
 	{
 		CPrintToChat(client, "{green}[TFRP]{default} You must be a {mediumseagreen}Bank Robber{default} to rob banks!");
 		return Plugin_Handled;
@@ -4197,11 +4159,11 @@ public Action Command_RobBank(int client, int args)
 	int curCopsRob = 0;
 	for(int i = 0; i <= MaxClients; i++)
 	{
-		if(IsGov[i]) curCopsRob++;
+		if(UD[i].bGov) curCopsRob++;
 	}
-	if(curCopsRob != CopsToRob)
+	if(curCopsRob != cvarTFRP[CopsToRob].IntValue)
 	{
-		CPrintToChat(client, "{green}[TFRP]{default} There has to be atleast %d cops on to start a robbery.", CopsToRob);
+		CPrintToChat(client, "{green}[TFRP]{default} There has to be atleast %d cops on to start a robbery.", cvarTFRP[CopsToRob].IntValue);
 		return Plugin_Handled;
 	}
 	
@@ -4217,7 +4179,7 @@ public Action Command_RobBank(int client, int args)
 			char RobberName[MAX_NAME_LENGTH];
 			GetClientName(client, RobberName, sizeof(RobberName));
 			PrintCenterTextAll("%s is robbing a bank!", RobberName); 
-			CreateTimer(bankRobTime, Timer_RobBank, client);
+			CreateTimer(cvarTFRP[BankRobTime].FloatValue, Timer_RobBank, client);
 			isBeingRobbed = true;
 		}else{
 			CPrintToChat(client, "{green}[TFRP]{default} You must be closer to the {mediumseagreen}bank vault {default}to rob it");
@@ -4382,15 +4344,15 @@ public void SetDoors()
 public Action Command_BuyDoor(int client, int args)
 {
 	
-	if(DoorOwnedAmt[client] >= maxDoors)
+	if(DoorOwnedAmt[client] >= cvarTFRP[MaxDoors].IntValue)
 	{
-		CPrintToChat(client, "{green}[TFRP]{default} You have reached the max {mediumseagreen}%d{default} doors.", maxDoors);
+		CPrintToChat(client, "{green}[TFRP]{default} You have reached the max {mediumseagreen}%d{default} doors.", cvarTFRP[MaxDoors].IntValue);
 		return Plugin_Handled;
 	}
 	
-	if(StrEqual(CanOwnDoors[client], "false"))
+	if(!UD[client].bOwnDoors)
 	{
-		CPrintToChat(client, "{green}[TFRP]{default} You cannot own doors as a {mediumseagreen}%s", Job[client]);
+		CPrintToChat(client, "{green}[TFRP]{default} You cannot own doors as a {mediumseagreen}%s", UD[client].sJob);
 		return Plugin_Handled;
 	}
 	
@@ -4507,7 +4469,7 @@ public Action Command_SellDoor(int client, int args)
 		Call_PushCell(curLookingDoorSell);
 		Call_Finish(result);
 
-	} else if(IsGov[client] && Doors[curLookingDoorSell] == 420)
+	} else if(UD[client].bGov && Doors[curLookingDoorSell] == 420)
 	{
 		CPrintToChat(client, "{green}[TFRP]{default} You cannot sell government doors!");
 	} else if(Doors[curLookingDoorSell] > 0 && Doors[curLookingDoorSell] != client || Doors[curLookingDoorSell] <= -1){
@@ -4553,7 +4515,7 @@ public Action Command_LockDoor(int client, int args)
 		}
 	}
 
-	if(foundOwnerDoor || Doors[curLookingDoorLock] == 420 && IsGov[client])
+	if(foundOwnerDoor || Doors[curLookingDoorLock] == 420 && UD[client].bGov)
 	{
 		// Owns the door
 		if(!lockedDoor[curLookingDoorLock])
@@ -4645,9 +4607,8 @@ public Action Command_AddGovDoor(int client, int args)
 		KvRewind(DB);
 		KeyValuesToFile(DB, DoorsPath);
 		CloseHandle(DB);
-		
+
 		TFRP_PrintToChat(client, "Added government door");
-	
 	}else if(Doors[curLookingGovDoor] == 420)
 	{
 		CPrintToChat(client, "{green}[TFRP]{default} This door is already government only!");
@@ -4766,7 +4727,7 @@ public Action Command_RevokeKeys(int client, int args)
 public Action LockpickTimer(Handle timer, int curDoorLockpick)
 {	
 	int lockpicker = isLockpicking[curDoorLockpick];
-	if(!isLockpickingPlayers[lockpicker]) return Plugin_Continue;
+	if(!UD[lockpicker].bLockpicking) return Plugin_Continue;
 	AcceptEntityInput(curDoorLockpick, "Unlock");
 	lockedDoor[curDoorLockpick] = false;
 	CPrintToChat(lockpicker, "{green}[TFRP]{default} Lockpicking done");
@@ -4779,7 +4740,7 @@ public Action LockpickMove(Handle timer, int curDoorLockpickMove)
 {
 	
 	int lockpickerMove = isLockpicking[curDoorLockpickMove];
-	if(!isLockpickingPlayers[lockpickerMove]) return Plugin_Continue;
+	if(!UD[lockpickerMove].bLockpicking) return Plugin_Continue;
 	
 	float GetLockpickerVecMove[3];
 	GetClientAbsOrigin(lockpickerMove, GetLockpickerVecMove);
@@ -4790,7 +4751,7 @@ public Action LockpickMove(Handle timer, int curDoorLockpickMove)
 	if(GetVectorDistance(GetLockpickerVecMove, GetLockpickerVecDoor) > 275)
 	{
 		isLockpicking[curDoorLockpickMove] = 0;
-		isLockpickingPlayers[lockpickerMove] = false;
+		UD[lockpickerMove].bLockpicking = false;
 		CPrintToChat(lockpickerMove, "{green}[TFRP]{default} Canceled lockpicking because you moved away from the door! Returned lockpick");
 		GiveItem(lockpickerMove, "Lockpick", 1);
 	}
@@ -4823,9 +4784,9 @@ public int Lockpick(int client)
 	{
 		CPrintToChat(client, "{green}[TFRP]{default} Lockpicking...");
 		isLockpicking[curLookingLockpickDoor] = client;
-		isLockpickingPlayers[client] = true;
+		UD[client].bLockpicking = true;
 		GiveItem(client, "Lockpick", -1);
-		CreateTimer(lockpickTime, LockpickTimer, curLookingLockpickDoor);
+		CreateTimer(cvarTFRP[LockpickingTime].FloatValue, LockpickTimer, curLookingLockpickDoor);
 		CreateTimer(0.1, LockpickMove, curLookingLockpickDoor, TIMER_REPEAT);
 		return 0;	
 	}
@@ -4921,9 +4882,9 @@ public int AddPrinter(int client, int printerIndex, char[] Tier)
 {
 	if(StrEqual(Tier, "Bronze"))
 	{
-		if(PrintersOwned[client][0] >= maxPrintersTier1)
+		if(PrintersOwned[client][0] >= cvarTFRP[MaxPrintersT1].IntValue)
 		{
-			CPrintToChat(client, "{green}[TFRP]{default} You have already reached the max {mediumseagreen}%d Bronze Printers!", maxPrintersTier1);
+			CPrintToChat(client, "{green}[TFRP]{default} You have already reached the max {mediumseagreen}%d Bronze Printers!", cvarTFRP[MaxPrintersT1].IntValue);
 			AcceptEntityInput(printerIndex, "kill");
 			RemoveEdict(printerIndex);
 			GiveItem(client, "Bronze Money Printer", 1);
@@ -4931,9 +4892,9 @@ public int AddPrinter(int client, int printerIndex, char[] Tier)
 		}
 	}else if(StrEqual(Tier, "Silver"))
 	{
-		if(PrintersOwned[client][1] >= maxPrintersTier2)
+		if(PrintersOwned[client][1] >= cvarTFRP[MaxPrintersT2].IntValue)
 		{
-			CPrintToChat(client, "{green}[TFRP]{default} You have already reached the max {mediumseagreen}%d Silver Printers!", maxPrintersTier2);
+			CPrintToChat(client, "{green}[TFRP]{default} You have already reached the max {mediumseagreen}%d Silver Printers!", cvarTFRP[MaxPrintersT2].IntValue);
 			AcceptEntityInput(printerIndex, "kill");
 			RemoveEdict(printerIndex);
 			GiveItem(client, "Silver Money Printer", 1);
@@ -4941,9 +4902,9 @@ public int AddPrinter(int client, int printerIndex, char[] Tier)
 		}
 	}else if(StrEqual(Tier, "Gold"))
 	{
-		if(PrintersOwned[client][2] >= maxPrintersTier3)
+		if(PrintersOwned[client][2] >= cvarTFRP[MaxPrintersT3].IntValue)
 		{
-			CPrintToChat(client, "{green}[TFRP]{default} You have already reached the max {mediumseagreen}%d Gold Printers!", maxPrintersTier3);
+			CPrintToChat(client, "{green}[TFRP]{default} You have already reached the max {mediumseagreen}%d Gold Printers!", cvarTFRP[MaxPrintersT3].IntValue);
 			AcceptEntityInput(printerIndex, "kill");
 			RemoveEdict(printerIndex);
 			GiveItem(client, "Gold Money Printer", 1);
@@ -4957,7 +4918,7 @@ public int AddPrinter(int client, int printerIndex, char[] Tier)
 		PrintersOwned[client][0] = PrintersOwned[client][0] + 1;
 		PrinterMoney[printerIndex] = 0;
 		PrinterTier[printerIndex] = 1;
-		CreateTimer(moneyPrintTimeTier1, Timer_PrinterTier1, printerIndex, TIMER_REPEAT);
+		CreateTimer(cvarTFRP[PrintTimeT1].FloatValue, Timer_PrinterTier1, printerIndex, TIMER_REPEAT);
 		isPrinter[printerIndex] = true; 
 		return 0;
 		
@@ -4967,7 +4928,7 @@ public int AddPrinter(int client, int printerIndex, char[] Tier)
 		PrintersOwned[client][1] = PrintersOwned[client][1] + 1;
 		PrinterMoney[printerIndex] = 0;
 		PrinterTier[printerIndex] = 2;
-		CreateTimer(moneyPrintTimeTier2, Timer_PrinterTier2, printerIndex, TIMER_REPEAT);
+		CreateTimer(cvarTFRP[PrintTimeT2].FloatValue, Timer_PrinterTier2, printerIndex, TIMER_REPEAT);
 		isPrinter[printerIndex] = true; 
 		return 0;
 	}else if(StrEqual(Tier, "Gold"))
@@ -4976,7 +4937,7 @@ public int AddPrinter(int client, int printerIndex, char[] Tier)
 		PrintersOwned[client][2] = PrintersOwned[client][2] + 1;
 		PrinterMoney[printerIndex] = 0;
 		PrinterTier[printerIndex] = 3;
-		CreateTimer(moneyPrintTimeTier3, Timer_PrinterTier3, printerIndex, TIMER_REPEAT);
+		CreateTimer(cvarTFRP[PrintTimeT3].FloatValue, Timer_PrinterTier3, printerIndex, TIMER_REPEAT);
 		isPrinter[printerIndex] = true; 	
 		return 0;
 
@@ -5018,7 +4979,7 @@ public Action OnTakeDamagePrinter(int victim, int &attacker, int &inflictor, flo
 public Action Timer_PrinterTier1(Handle timer, int printerIndex)
 {
 	if(EntOwners[printerIndex] == 0) return Plugin_Continue;
-	PrinterMoney[printerIndex] = PrinterMoney[printerIndex] + printerTier1MoneyPerPrint;
+	PrinterMoney[printerIndex] = PrinterMoney[printerIndex] + cvarTFRP[PrintT1Money].IntValue;
 	float printerPosTimer1[3];
 	GetEntPropVector(printerIndex, Prop_Send, "m_vecOrigin", printerPosTimer1);
 	EmitAmbientSound(PRINTER_PRINTED_SOUND, printerPosTimer1, SOUND_FROM_WORLD, SNDLEVEL_NORMAL, SND_NOFLAGS, SNDVOL_NORMAL, SNDPITCH_NORMAL, 0.0);
@@ -5029,7 +4990,7 @@ public Action Timer_PrinterTier2(Handle timer, int printerIndex)
 {
 	if(EntOwners[printerIndex] == 0) return Plugin_Continue;
 	
-	PrinterMoney[printerIndex] = PrinterMoney[printerIndex] + printerTier2MoneyPerPrint;
+	PrinterMoney[printerIndex] = PrinterMoney[printerIndex] + cvarTFRP[PrintT2Money].IntValue;
 	float printerPosTimer1[3];
 	GetEntPropVector(printerIndex, Prop_Send, "m_vecOrigin", printerPosTimer1);
 	EmitAmbientSound(PRINTER_PRINTED_SOUND, printerPosTimer1, SOUND_FROM_WORLD, SNDLEVEL_NORMAL, SND_NOFLAGS, SNDVOL_NORMAL, SNDPITCH_NORMAL, 0.0);
@@ -5040,7 +5001,7 @@ public Action Timer_PrinterTier2(Handle timer, int printerIndex)
 public Action Timer_PrinterTier3(Handle timer, int printerIndex)
 {
 	if(EntOwners[printerIndex] == 0) return Plugin_Continue;
-	PrinterMoney[printerIndex] = PrinterMoney[printerIndex] + printerTier3MoneyPerPrint;
+	PrinterMoney[printerIndex] = PrinterMoney[printerIndex] + cvarTFRP[PrintT3Money].IntValue;
 	float printerPosTimer1[3];
 	GetEntPropVector(printerIndex, Prop_Send, "m_vecOrigin", printerPosTimer1);
 	EmitAmbientSound(PRINTER_PRINTED_SOUND, printerPosTimer1, SOUND_FROM_WORLD, SNDLEVEL_NORMAL, SND_NOFLAGS, SNDVOL_NORMAL, SNDPITCH_NORMAL, 0.0);
@@ -5107,7 +5068,7 @@ public Action Command_PlaceHit(int client, int args)
 		return Plugin_Handled;
 	}
 	
-	if(StrEqual(Job[GetHitmanLook], "Hitman"))
+	if(StrEqual(UD[GetHitmanLook].sJob, "Hitman"))
 	{
 		
 		if(Hits[GetHitmanLook] > 0)
@@ -5179,7 +5140,7 @@ public int DeleteHit(int client)
 public Action Command_SetLottery(int client, int args)
 {
 	
-	if(!StrEqual(Job[client], "Mayor"))
+	if(!StrEqual(UD[client].sJob, "Mayor"))
 	{
 		CPrintToChat(client, "{green}[TFRP]{default} You must be {mediumseagreen}Mayor{default} to start the lottery!");
 		return Plugin_Handled;
@@ -5202,9 +5163,9 @@ public Action Command_SetLottery(int client, int args)
 	GetCmdArg(1, GetLotArg1, sizeof(GetLotArg1));
 	LotAmt = StringToInt(GetLotArg1);
 	
-	if(LotAmt > maxLottery)
+	if(LotAmt > cvarTFRP[MaxLot].IntValue)
 	{
-		CPrintToChat(client, "{green}[TFRP]{default} The max a lottery can be worth is {mediumseagreen}%d!", maxLottery);
+		CPrintToChat(client, "{green}[TFRP]{default} The max a lottery can be worth is {mediumseagreen}%d!", cvarTFRP[MaxLot].IntValue);
 		return Plugin_Handled;
 	}
 	
@@ -5224,7 +5185,7 @@ public Action Command_SetLottery(int client, int args)
 	isLottery = true;
 	lotAvaliable = false;
 	CPrintToChatAll("{yellow}[TFRP ADVERT]{default} A lottery has started for {mediumseagreen}%d!", LotAmt);
-	CreateTimer(lotTime, Timer_Lottery, client);
+	CreateTimer(cvarTFRP[LotTime].FloatValue, Timer_Lottery, client);
 	return Plugin_Handled;
 }
 
@@ -5252,7 +5213,7 @@ public Action Timer_Lottery(Handle timer, int client)
 	while(!foundLotWinner)
 	{
 		GetRandomLot = GetRandomInt(0, MaxClients);
-		if(playingLot[GetRandomLot]) foundLotWinner = true;
+		if(UD[GetRandomLot].bInLot) foundLotWinner = true;
 	}
 
 	UD[GetRandomLot].iCash += LotAmt;
@@ -5265,13 +5226,13 @@ public Action Timer_Lottery(Handle timer, int client)
 
 	for(int i = 0; i <= MaxClients; i++)
 	{
-		playingLot[i] = false;
+		UD[i].bInLot = false;
 	}
 	
 	LotAmt = 0;
 	lotteryStarter = 0;
 	isLottery = false;
-	CreateTimer(timeBetweenLot, Timer_LotteryReset);
+	CreateTimer(cvarTFRP[TimeBetweenLot].FloatValue, Timer_LotteryReset);
 	
 	return Plugin_Continue;
 }
@@ -5297,7 +5258,10 @@ public Action Command_JoinLottery(int client, int args)
 	
 	UD[client].iCash -= LotAmt/2;
 	UD[lotteryStarter].iCash += LotAmt/2;
-	playingLot[client] = true;
+	UD[client].bInLot = true;
+
+	UpdateCash(client);
+	UpdateCash(lotteryStarter);
 	
 	return Plugin_Handled;
 }
@@ -5306,13 +5270,14 @@ public int CancelLottery()
 {
 	for(int i = 0; i <= MAXPLAYERS; i++)
 	{
-		if(playingLot[i])
+		if(UD[i].bInLot)
 		{
 			UD[i].iCash += LotAmt;
+			UpdateCash(i);
 			CPrintToChat(i, "{green}[TFRP]{default} You were refunded{mediumseagreen} %d{default} because the lottery was canceled");
 		}
 		
-		playingLot[i] = false;
+		UD[i].bInLot = false;
 	}
 
 	isLottery = false;
@@ -5346,7 +5311,7 @@ public Action Command_Laws(int client, int args)
 
 public Action Command_AddLaw(int client, int args)
 {
-	if(!StrEqual(Job[client], "Mayor"))
+	if(!StrEqual(UD[client].sJob, "Mayor"))
 	{
 		CPrintToChat(client, "{green}[TFRP]{default} You must be {mediumseagreen}Mayor{default} to add laws!");
 		return Plugin_Handled;
@@ -5379,7 +5344,7 @@ public Action Command_AddLaw(int client, int args)
 
 public Action Command_DeleteLaw(int client, int args)
 {
-	if(!StrEqual(Job[client], "Mayor"))
+	if(!StrEqual(UD[client].sJob, "Mayor"))
 	{
 		CPrintToChat(client, "{green}[TFRP]{default} Your job must be {mediumseagreen}Mayor{default} to delete laws!");
 		return Plugin_Handled;
@@ -5420,7 +5385,7 @@ public Action Command_DeleteLaw(int client, int args)
 // Battering ram
 public Action Command_Ram(int client, int args)
 {
-	if(!IsGov[client])
+	if(!UD[client].bGov)
 	{
 		CPrintToChat(client, "{green}[TFRP]{default} Only police can use the battering ram!");
 		return Plugin_Handled;
@@ -5439,7 +5404,7 @@ public Action Command_Ram(int client, int args)
 		return Plugin_Handled;
 	}
 	
-	if(HasWarrant[Doors[GetDoorRam]])
+	if(UD[Doors[GetDoorRam]].bHasWarrent)
 	{
 		AcceptEntityInput(GetDoorRam, "Unlock");
 	}else{
@@ -5453,7 +5418,7 @@ public Action Command_Ram(int client, int args)
 
 public Action Command_SetWarrant(int client, int args)
 {
-	if(!StrEqual(Job[client], "Mayor") && !StrEqual(Job[client], "Police Chief"))
+	if(!StrEqual(UD[client].sJob, "Mayor") && !StrEqual(UD[client].sJob, "Police Chief"))
 	{
 		CPrintToChat(client, "{green}[TFRP]{default} Only the Police Chief and Mayor can set warrants!");
 		return Plugin_Handled;
@@ -5463,7 +5428,7 @@ public Action Command_SetWarrant(int client, int args)
 	SetMenuTitle(menuhandle, "[TFRP] Warrant Menu");
 	for(int i = 1; i <= MaxClients; i++)
 	{
-		if(IsClientInGame(i) && !IsGov[i])
+		if(IsClientInGame(i) && !UD[i].bGov)
 		{
 			char GetPlayerSetwarrant[MAX_NAME_LENGTH];
 			GetClientName(i, GetPlayerSetwarrant, sizeof(GetPlayerSetwarrant));
@@ -5500,7 +5465,7 @@ public int SetWarrantHud(int client)
 public Action Timer_Warrant(Handle timer, int client)
 {
 	
-	HasWarrant[client] = false;
+	UD[client].bHasWarrent = false;
 	
 	for(int i = 1; i <= MaxClients; i++)
 	{
