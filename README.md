@@ -1,4 +1,4 @@
-TFRP v1.2.0 by Thod
+TFRP v1.2.1 by Thod
 
 Thank you for downloading my Team Fortress Roleplay Mod!
 All required plugins are on the AlliedModders page.
@@ -104,16 +104,14 @@ NPC Types can be found in tfrp_npctypes
 ___________________________________________
 [ What's New? ]
 
-v1.1.0
-*Changed messages for Sandvich making
-*Changed messages for Australium mining
-*All ents are stored in one array for owners
-*New array for ent's item type
-*Fixed bug related to using items
-*Shortened and improved lots of code related to money making systems
-
-v1.2.0
-
+v1.2.1
+Fixed new players not recieving start money
+Fixed weapons having the wrong category
+Fixed Australium Packages reaching max after being picked up
+Fixed error related to doors owned by disconnected players
+Revokekeys is now accessible
+Messages now appear on givekeys errors
+Message now appears when a government door is added
 ___________________________________________
 [  Credits  ]
 
