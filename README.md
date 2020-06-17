@@ -6,7 +6,7 @@ All required plugins are on the AlliedModders page.
 ___________________________________________
 [ Installation ]
 
-	1. Dump every folder from tfrp_v1.2 into your server's tf folder
+	1. Dump every folder from tfrp_v1.2.2 into your server's tf folder
 	2. Restart your server if it's running
 	3. Enter database's info (See [Configuring Database] in this file)
 	4. Configure everything to your liking (addons/sourcemod/configs/tfrp/cfg)
