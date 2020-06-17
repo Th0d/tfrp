@@ -1,0 +1,79 @@
+"Jobs"
+{
+	"Citizen"
+	{
+		"Salary"		"50"
+		"IsGov"		"false"
+		"CanOwnDoors"		"true"
+	}
+	"Sandvich Maker"
+	{
+		"Salary"		"45"
+		"IsGov"		"false"
+		"CanOwnDoors"		"true"
+	}
+	"Australium Miner"
+	{
+		"Salary"		"40"
+		"IsGov"		"false"
+		"CanOwnDoors"		"true"
+	}
+	"Bank Robber"
+	{
+		"Salary"		"20"
+		"IsGov"		"false"
+		"CanOwnDoors"		"true"
+	}
+	"Hobo"
+	{
+		"Salary"		"0"
+		"IsGov"		"false"
+		"CanOwnDoors"		"false"
+		"StartWeapons"
+		{
+			"Bottle"		"1"
+		}
+	}
+	"Police Officer"
+	{
+		"Salary"		"75"
+		"IsGov"		"true"
+		"CanOwnDoors"		"false"
+		"StartWeapons"
+		{
+			"BigKill"		"161"
+			"Bat"		"0"
+		}
+	}
+	"Police Chief"
+	{
+		"Salary"		"100"
+		"IsGov"		"true"
+		"CanOwnDoors"		"false"
+		"StartWeapons"
+		{
+			"Shotgun"		"11"
+			"BigKill"		"161"
+			"Bat"		"0"
+		}
+	}
+	"Mayor"
+	{
+		"Salary"		"500"
+		"IsGov"		"true"
+		"CanOwnDoors"		"true"
+		"IsMayor"		"true"
+	}
+	"Thief"
+	{
+		"Salary"		"20"
+		"IsGov"		"false"
+		"CanOwnDoors"		"true"
+	}
+	"Hitman"
+	{
+		"Salary"		"45"
+		"IsGov"		"false"
+		"CanOwnDoors"		"true"
+	}
+}
