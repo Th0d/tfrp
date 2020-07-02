@@ -1,7 +1,7 @@
 #define PLUGIN_NAME 		"TF2 Roleplay Mod"
 #define PLUGIN_AUTHOR 		"Thod (SQL by The Illusion Squid)"
 #define PLUGIN_DESCRIPTION 	"Roleplay mod for TF2"
-#define PLUGIN_VERSION 		"1.2.2"
+#define PLUGIN_VERSION 		"1.3.0"
 #define PLUGIN_URL 			"https://github.com/Th0d/tfrp"
 
 #include <sourcemod>
@@ -21,14 +21,13 @@
 
 // Define
 #define AUSTRALIUM_DRILL_MINED_AUSTRALIUM	"weapons/sentry_upgrading_steam4.wav"
-#define AUSTRALIUM_MAX_DRILLS				3
-#define AUSTRALIUM_MAX_CLEANERS				3
-#define AUSTRALIUM_MAX_PACKAGES				3
-
-#define SANDVICH_MAX_TABLES					2
 
 #define DOOR_LOCK_SOUND						"doors/default_locked.wav"
 #define DOOR_UNLOCK_SOUND					"doors/latchunlocked1.wav"
+
+#define BONK_CANNER_GOT_BONK_SOUND			"buttons/button4.wav"
+#define TFRP_ERROR_SOUND			"buttons/button10.wav"
+#define BONK_CANNER_CANNED_BONK_SOUND		"physics/metal/metal_barrel_impact_soft3.wav"
 
 #define PRINTER_AMBIENT_SOUND				"ambient/levels/labs/equipment_printer_loop1.wav"
 #define PRINTER_PRINTED_SOUND				"mvm/mvm_money_pickup.wav"
@@ -68,9 +67,6 @@ enum
 	PrintT1Money,
 	PrintT2Money,
 	PrintT3Money,
-	MaxPrintersT1,
-	MaxPrintersT2,
-	MaxPrintersT3,
 	LockpickingTime,
 	TimeBetweenLot,
 	MaxLot,
@@ -78,6 +74,10 @@ enum
 	MaxDroppedItems,
 	HitPrice,
 	ShopReturn,
+	BonkBrewTime,
+	BonkCanTime,
+	RobberyInBetweenTime,
+	WarrantReward,
 	Version
 } //When adding new cvars, please put them above Version. Thanks - The Illusion Squid
 
@@ -119,13 +119,16 @@ enum struct UserData
 	int iLogTime;		//Timestamp of last playtime update
 	char sJob[255];		//Job name
 	int iJobSalary;		//Jobs salary
-	bool bGov;			//If the player is in a goverment job
+	bool bGov;			//If the player has a goverment job
 	bool bArrested;		//If the player is arrested
 	bool bLockpicking;	//If the player is lockpicking a door
-	bool bInLot;		//If the player is in the lotary
+	bool bInLot;		//If the player is in the lottery
 	bool bOwnDoors;		//If the player can own doors
 	bool bHasWarrent;	//If the player has a warrent
+	bool isRobbingBank; //If the player is robbing a bank
+	bool firstSpawn; 	//If this is the first time a player spawns
 }
+
 UserData UD[MAXPLAYERS + 1]; 
 //Much cleaner way of storing user data then all separate variables -Squid
 
@@ -144,6 +147,7 @@ static char NPCPath[PLATFORM_MAX_PATH];
 static char NPCTypePath[PLATFORM_MAX_PATH];
 static char CategoryPath[PLATFORM_MAX_PATH];
 static char JailPath[PLATFORM_MAX_PATH];
+static char RadioPath[PLATFORM_MAX_PATH];
 
 // Config variables
 
@@ -151,6 +155,7 @@ int bankWorth = 0; // 0 is default
 int bankIndex = 0; // 0 is default
 int bankRobHudTime = 300; // 300 is default
 bool isBeingRobbed = false; // false is default
+bool RobbingEnabled = true; // true is default
 
 int LotAmt = 0; // 0 is default
 int lotteryStarter = 0; // 0 is default
@@ -168,46 +173,58 @@ static lockedDoor[2048] = {false,...};
 static float JailTimes[MAXPLAYERS + 1] = {0.0,...};
 static isLockpicking[2048] = {0,...};
 static DoorOwnedAmt[MAXPLAYERS + 1] = {0,...};
-static WelcomeHuds[MAXPLAYERS + 1] = {false,...};
 static EntOwners[2048] = {0,...};
 static char EntItems[2048][255];
-// static Bank[MAXPLAYERS + 1] = {0,...};
+
+// Sandvich
+static STableIngredients[2048][4];
+
+// Australium
+static AusFuels[2048] = {0,...};
+static AusMined[2048] = {0,...};
 	
-	// Sandvich
-		static STableIngredients[2048][4];
-	// Australium
-		static AusFuels[2048] = {0,...};
-		static AusMined[2048] = {0,...};
-		static AusDrillsOwned[MAXPLAYERS + 1] = {0,...};
+static AusDirty[2048] = {0,...};
+static AusClean[2048] = {0,...};
 	
-		static AusDirty[2048] = {0,...};
-		static AusClean[2048] = {0,...};
-		static AusCleanersOwned[MAXPLAYERS + 1] = {0,...};
-	
-		static AusPacks[2048] = {0,...};
-		static AusPacksOwned[MAXPLAYERS + 1] = {0,...};
-	// NPCs
-		static char NPCIds[7][255];
-		static NPCEnts[7] = {0,...};
-		static NPCEntsBox[7] = {0,...};
-	// Printers
-		static PrinterMoney[2048] = {0,...};
-		static PrintersOwned[MAXPLAYERS + 1][3];
-		static isPrinter[2048] = {false,...};
-		static PrinterTier[2048] = {0,...};
-	// Casino
-		//static BlackjackGames[2048] = {0,...};
-		static PlayingBlackjack[MAXPLAYERS + 1] = {0,...};
-		static char BlackjackCards[MAXPLAYERS + 1][255];
-		//static BlackjackWagers[MAXPLAYERS + 1] = {0,...};
-		// static BlackjackPos[MAXPLAYERS + 1] = {0,...};
-	// Hitman
-		static Hits[MAXPLAYERS + 1] = {0,...};
-	// Laws
-		static char Laws[10][255];
+static AusPacks[2048] = {0,...};
+
+// NPCs
+static char NPCIds[7][255];
+static NPCEnts[7] = {0,...};
+static NPCEntsBox[7] = {0,...};
+
+// Printers
+static PrinterMoney[2048] = {0,...};
+static isPrinter[2048] = {false,...};
+static PrinterTier[2048] = {0,...};
+
+// Hitman
+static Hits[MAXPLAYERS + 1] = {0,...};
+
+// Laws
+static char Laws[10][255];
+
+// Bonk
+enum struct BonkMixerD
+{
+	int BonkWater;
+	int BonkCaesium;
+	int BonkSugar;
+}
+BonkMixerD BonkMixers[2048];
+
+enum struct BonkCannerD
+{
+	int BonkInCanner;
+	int BonkCans;
+}
+BonkCannerD BonkCanners[2048];
+
+// Radio
+int Radios[2048][2];
 
 // Handles
-Handle hHud1, hHud2, hHud3, hHud4, hHud5, hHud6, hHud7, hHud8, hHud9, hHud10, hHud11;
+Handle hHud1, hHud2, hHud3, hHud4, hHud5, hHud6, hHud7, hHud9, hHud10, hHud11, hHud12, hHud13, hHud14, hHud15, hHud16, hHud17;
 
 Handle g_FfEnabled = INVALID_HANDLE;
 Handle autoBalance = INVALID_HANDLE;
@@ -304,6 +321,7 @@ public int Native_DeleteEnt(Handle plugin, int numParams)
 {
 	int ent = GetNativeCell(1);
 	if(ent >= 2048 || ent <= -1 || EntOwners[ent] == 0) return 0;
+	if(StrEqual(EntItems[ent], "Radio")) StopRadio(Radios[ent][0], Radios[ent][1], ent);
 	EntOwners[ent] = 0;
 	EntItems[ent] = "__no__item__";
 	AcceptEntityInput(ent, "kill");
@@ -365,6 +383,11 @@ public void OnPluginStart()
 	CreateDirectory("addons/sourcemod/configs/tfrp/info", 3);
 	BuildPath(Path_SM, JailPath, sizeof(JailPath), "configs/tfrp/info/tfrp_jails.txt");
 	
+	// Build path for radio channels
+	CreateDirectory("addons/sourcemod/configs/tfrp/cfg", 3);
+	BuildPath(Path_SM, RadioPath, sizeof(RadioPath), "configs/tfrp/cfg/tfrp_radio.txt");
+
+	
 	// Hud
 	hHud1 = CreateHudSynchronizer();
 	hHud2 = CreateHudSynchronizer();
@@ -373,11 +396,17 @@ public void OnPluginStart()
 	hHud5 = CreateHudSynchronizer();
 	hHud6 = CreateHudSynchronizer();
 	hHud7 = CreateHudSynchronizer();
-	hHud8 = CreateHudSynchronizer();
+	//hHud8 = CreateHudSynchronizer();
 	hHud9 = CreateHudSynchronizer();
 	hHud10 = CreateHudSynchronizer();
 	hHud11 = CreateHudSynchronizer();
-
+	hHud12 = CreateHudSynchronizer();
+	hHud13 = CreateHudSynchronizer();
+	hHud14 = CreateHudSynchronizer();
+	hHud15 = CreateHudSynchronizer();
+	hHud16 = CreateHudSynchronizer();
+	hHud17 = CreateHudSynchronizer();
+	
 	/////////////
 	// Config //
 	////////////
@@ -409,6 +438,30 @@ public void OnPluginStart()
 	PrecacheSound(DOOR_UNLOCK_SOUND, true);
 	PrecacheSound(PRINTER_PRINTED_SOUND, true);
 	PrecacheSound(MEDKIT_SOUND, true);
+	PrecacheSound(BONK_CANNER_CANNED_BONK_SOUND, true);
+	PrecacheSound(BONK_CANNER_GOT_BONK_SOUND, true);
+	PrecacheSound(TFRP_ERROR_SOUND, true);
+	
+	// Precache radio music
+	Handle RM = CreateKeyValues("Radio");
+	FileToKeyValues(RM, RadioPath);
+	
+	KvGotoFirstSubKey(RM,false);
+	do{
+		if(KvGotoFirstSubKey(RM,false))
+		{
+			PrintToServer("bruh");
+			do{
+				char SoundFileName[64];
+				KvGetSectionName(RM, SoundFileName, sizeof(SoundFileName));
+				PrecacheSound(SoundFileName, true);
+			} while (KvGotoNextKey(RM,false));
+			KvGoBack(RM);
+		}
+	} while (KvGotoNextKey(RM,false));
+	
+	KvRewind(RM);
+	CloseHandle(RM);
 	
 	//////////////////////
 	// Create Forwards //
@@ -452,18 +505,72 @@ public void OnPluginStart()
 	cvarTFRP[PrintT1Money] = CreateConVar("sm_tfrp_printmoney_t1", "250", "Ammount of money printed by bronze printers.", FCVAR_NOTIFY);
 	cvarTFRP[PrintT2Money] = CreateConVar("sm_tfrp_printmoney_t2", "500", "Ammount of money printed by silver printers.", FCVAR_NOTIFY);
 	cvarTFRP[PrintT3Money] = CreateConVar("sm_tfrp_printmoney_t3", "1000", "Ammount of money printed by gold printers.", FCVAR_NOTIFY);
-	cvarTFRP[MaxPrintersT1] = CreateConVar("sm_tfrp_maxprinters_t1", "3", "Maximum ammount of bronze printers.", FCVAR_NOTIFY);
-	cvarTFRP[MaxPrintersT2] = CreateConVar("sm_tfrp_maxprinters_t2", "3", "Maximum ammount of silver printers.", FCVAR_NOTIFY);
-	cvarTFRP[MaxPrintersT3] = CreateConVar("sm_tfrp_maxprinters_t3", "3", "Maximum ammount of gold printers.", FCVAR_NOTIFY);
 	cvarTFRP[LockpickingTime] = CreateConVar("sm_tfrp_lockpickingtime", "20.0", "Time to lockpick a door in seconds.", FCVAR_NOTIFY);
 	cvarTFRP[TimeBetweenLot] = CreateConVar("sm_tfrp_timebetweenlottery", "600.0", "Time between lotteries in seconds.", FCVAR_NOTIFY);
 	cvarTFRP[MaxLot] = CreateConVar("sm_tfrp_maxlottery", "7500", "Maximum ammount a lottery can be worth. Change this as the money circulating the server increases.", FCVAR_NOTIFY);
 	cvarTFRP[MaxDoors] = CreateConVar("sm_tfrp_maxdoors", "8", "Maximum ammount of doors a player can own.", FCVAR_NOTIFY);
-	cvarTFRP[HitPrice] = CreateConVar("sm_tfrp_hitprice", "500", "Price to place a hit & ammount of money funded to hitman.", FCVAR_NOTIFY);cvarTFRP[MaxDroppedItems] = CreateConVar("sm_tfrp_maxdroppeditems", "10", "Maximum ammount of items dropped by a player. (NOTE: you don't want to set this too high, would risk lagging down the server.)", FCVAR_NOTIFY);
+	cvarTFRP[HitPrice] = CreateConVar("sm_tfrp_hitprice", "500", "Price to place a hit & ammount of money funded to hitman.", FCVAR_NOTIFY);
+	cvarTFRP[MaxDroppedItems] = CreateConVar("sm_tfrp_maxdroppeditems", "10", "Maximum ammount of items dropped by a player. (NOTE: you don't want to set this too high, would risk lagging down the server.)", FCVAR_NOTIFY);
 	cvarTFRP[ShopReturn] = CreateConVar("sm_tfrp_shopreturn", "2", "The ratio of refund. (Calculation: OriginalPrize / ShopReturn)", FCVAR_NOTIFY);
-
+	cvarTFRP[BonkBrewTime] = CreateConVar("sm_tfrp_bonkbrewtime", "30.0", "Time for Bonk to be mixed in seconds.", FCVAR_NOTIFY);
+	cvarTFRP[BonkCanTime] = CreateConVar("sm_tfrp_bonkcantime", "15.0", "Time for Bonk to be canned in seconds.", FCVAR_NOTIFY);
+	cvarTFRP[RobberyInBetweenTime] = CreateConVar("sm_tfrp_robberyinbetweentime", "600.0", "Time for robbing the bank to be enabled again in seconds.", FCVAR_NOTIFY);
+	cvarTFRP[WarrantReward] = CreateConVar("sm_tfrp_warrant_reward", "500", "Cash given to cop who arrests a player with a warrant.", FCVAR_NOTIFY);
+	
+	
 	//Execute the config file in /cfg/sourcemod/ or create one if it doesn't exist
 	AutoExecConfig(true, "tfrp"); 
+	
+	//////////////////
+	// 	Downloads  //
+	/////////////////
+	
+	if(FileExists("models/tfrp/bonkcanner.dx80.vtx")) AddFileToDownloadsTable("models/tfrp/bonkcanner.dx80.vtx");
+	if(FileExists("models/tfrp/bonkcanner.dx90.vtx")) AddFileToDownloadsTable("models/tfrp/bonkcanner.dx90.vtx");
+	if(FileExists("models/tfrp/bonkcanner.mdl")) AddFileToDownloadsTable("models/tfrp/bonkcanner.mdl");
+	if(FileExists("models/tfrp/bonkcanner.phy")) AddFileToDownloadsTable("models/tfrp/bonkcanner.phy");
+	if(FileExists("models/tfrp/bonkcanner.sw.vtx")) AddFileToDownloadsTable("models/tfrp/bonkcanner.sw.vtx");
+	if(FileExists("models/tfrp/bonkcanner.vvd")) AddFileToDownloadsTable("models/tfrp/bonkcanner.vvd");
+	if(FileExists("models/tfrp/bonkmixer.dx80.vtx")) AddFileToDownloadsTable("models/tfrp/bonkmixer.dx80.vtx");
+	if(FileExists("models/tfrp/bonkmixer.dx90.vtx")) AddFileToDownloadsTable("models/tfrp/bonkmixer.dx90.vtx");
+	if(FileExists("models/tfrp/bonkmixer.mdl")) AddFileToDownloadsTable("models/tfrp/bonkmixer.mdl");
+	if(FileExists("models/tfrp/bonkmixer.phy")) AddFileToDownloadsTable("models/tfrp/bonkmixer.phy");
+	if(FileExists("models/tfrp/bonkmixer.sw.vtx")) AddFileToDownloadsTable("models/tfrp/bonkmixer.sw.vtx");
+	if(FileExists("models/tfrp/bonkmixer.vvd")) AddFileToDownloadsTable("models/tfrp/bonkmixer.vvd");
+	if(FileExists("models/tfrp/saxton_hale.dx80.vtx")) AddFileToDownloadsTable("models/tfrp/saxton_hale.dx80.vtx");
+	if(FileExists("models/tfrp/saxton_hale.dx90.vtx")) AddFileToDownloadsTable("models/tfrp/saxton_hale.dx90.vtx");
+	if(FileExists("models/tfrp/saxton_hale.mdl")) AddFileToDownloadsTable("models/tfrp/saxton_hale.mdl");
+	if(FileExists("models/tfrp/saxton_hale.phy")) AddFileToDownloadsTable("models/tfrp/saxton_hale.phy");
+	if(FileExists("models/tfrp/saxton_hale.sw.vtx")) AddFileToDownloadsTable("models/tfrp/saxton_hale.sw.vtx");
+	if(FileExists("models/tfrp/saxton_hale.vvd")) AddFileToDownloadsTable("models/tfrp/saxton_hale.vvd");
+	
+	// Materials (map materials come packed with the bsp)
+	if(FileExists("materials/tfrp/bonkmixer/bottom.vtf")) AddFileToDownloadsTable("materials/tfrp/bonkmixer/bottom.vtf");
+	if(FileExists("materials/tfrp/bonkmixer/bottom.vmt")) AddFileToDownloadsTable("materials/tfrp/bonkmixer/bottom.vmt");
+	if(FileExists("materials/tfrp/bonkmixer/no_material.vtf")) AddFileToDownloadsTable("materials/tfrp/bonkmixer/no_material.vtf");
+	if(FileExists("materials/tfrp/bonkmixer/no_material.vmt")) AddFileToDownloadsTable("materials/tfrp/bonkmixer/no_material.vmt");
+	if(FileExists("materials/tfrp/bonkmixer/top.vtf")) AddFileToDownloadsTable("materials/tfrp/bonkmixer/top.vtf");
+	if(FileExists("materials/tfrp/bonkmixer/top.vmt")) AddFileToDownloadsTable("materials/tfrp/bonkmixer/top.vmt");
+	
+	if(FileExists("materials/tfrp/bonkcanner/bonk_can.vtf")) AddFileToDownloadsTable("materials/tfrp/bonkcanner/bonk_can.vtf");
+	if(FileExists("materials/tfrp/bonkcanner/bonk_can.vmt")) AddFileToDownloadsTable("materials/tfrp/bonkcanner/bonk_can.vmt");
+	if(FileExists("materials/tfrp/bonkcanner/bonk_can_tips.vtf")) AddFileToDownloadsTable("materials/tfrp/bonkcanner/bonk_can_tips.vtf");
+	if(FileExists("materials/tfrp/bonkcanner/bonk_can_tips.vmt")) AddFileToDownloadsTable("materials/tfrp/bonkcanner/bonk_can_tips.vmt");
+	if(FileExists("materials/tfrp/bonkcanner/pipe.vtf")) AddFileToDownloadsTable("materials/tfrp/bonkcanner/pipe.vtf");
+	if(FileExists("materials/tfrp/bonkcanner/pipe.vmt")) AddFileToDownloadsTable("materials/tfrp/bonkcanner/steel.vmt");
+	if(FileExists("materials/tfrp/bonkcanner/steel.vtf")) AddFileToDownloadsTable("materials/tfrp/bonkcanner/steel.vtf");
+	if(FileExists("materials/tfrp/bonkcanner/steel.vmt")) AddFileToDownloadsTable("materials/tfrp/bonkcanner/steel.vmt");
+	
+	if(FileExists("materials/tfrp/bonkcanner/hale_body.vtf")) AddFileToDownloadsTable("materials/tfrp/bonkcanner/hale_body.vtf");
+	if(FileExists("materials/tfrp/bonkcanner/hale_body.vmt")) AddFileToDownloadsTable("materials/tfrp/bonkcanner/hale_body.vmt");
+	if(FileExists("materials/tfrp/bonkcanner/hale_body_normal.vtf")) AddFileToDownloadsTable("materials/tfrp/bonkcanner/hale_body_normal.vtf");
+	if(FileExists("materials/tfrp/bonkcanner/hale_egg.vtf")) AddFileToDownloadsTable("materials/tfrp/bonkcanner/hale_egg.vtf");
+	if(FileExists("materials/tfrp/bonkcanner/hale_egg.vmt")) AddFileToDownloadsTable("materials/tfrp/bonkcanner/hale_egg.vmt");
+	if(FileExists("materials/tfrp/bonkcanner/hale_head.vtf")) AddFileToDownloadsTable("materials/tfrp/bonkcanner/hale_head.vtf");
+	if(FileExists("materials/tfrp/bonkcanner/hale_head.vmt")) AddFileToDownloadsTable("materials/tfrp/bonkcanner/hale_head.vmt");
+	if(FileExists("materials/tfrp/bonkcanner/hale_misc.vtf")) AddFileToDownloadsTable("materials/tfrp/bonkcanner/hale_misc.vtf");
+	if(FileExists("materials/tfrp/bonkcanner/hale_misc.vmt")) AddFileToDownloadsTable("materials/tfrp/bonkcanner/hale_misc.vmt");
+	if(FileExists("materials/tfrp/bonkcanner/hale_misc_normal.vtf")) AddFileToDownloadsTable("materials/tfrp/bonkcanner/hale_misc_normal.vtf");
 	
 	////////////////////////
 	// Register Commands //
@@ -475,6 +582,8 @@ public void OnPluginStart()
 	RegConsoleCmd("sm_shop", Command_BUYMENU);
 	
 	RegConsoleCmd("sm_rotate", Command_Rotate);
+	
+	RegConsoleCmd("sm_rphelp", Command_RPHelp);
 
 	// Doors
 	
@@ -509,9 +618,6 @@ public void OnPluginStart()
 
 	// Hitman
 	RegConsoleCmd("sm_placehit", Command_PlaceHit);
-	
-	// Blackjack  
-	// RegConsoleCmd("sm_wager", Command_PlaceWager);
 
 	// Lottery
 	RegConsoleCmd("sm_setlottery", Command_SetLottery);
@@ -526,6 +632,9 @@ public void OnPluginStart()
 	RegConsoleCmd("sm_setwarrant", Command_SetWarrant);
 	RegConsoleCmd("sm_ram", Command_Ram);
 
+	// Radio
+	RegConsoleCmd("sm_radiochannel", Command_RadioChannel);
+	
 	/////////////////////
 	// Admin Commands //
 	////////////////////
@@ -700,6 +809,7 @@ void GetUserInfo(int iClient) //Stores user info inside cache and registers new 
 		PrintToServer("GetUserInfo query: %s", sQuery);
 
 	SQL_TQuery(g_hSQL, SQLCall_GetUserInfo, sQuery, hPack);
+
 }
 
 void SQLCall_GetUserInfo(Handle owner, Handle hndl, const char[] error, any data)
@@ -833,6 +943,7 @@ public void OnClientAuthorized(int iClient, const char[] sAuth)
 		return;
 
 	GetUserInfo(iClient); //Cashes some stuff
+	
 }
 
 public void OnClientPutInServer(int client)
@@ -848,6 +959,8 @@ public void OnClientPutInServer(int client)
 	UD[client].bInLot = false;
 	UD[client].bOwnDoors = false;
 	UD[client].bHasWarrent = false;
+	UD[client].isRobbingBank = false;
+	UD[client].firstSpawn = true;
 
 	// Team collision
 	SetEntProp(client, Prop_Data, "m_CollisionGroup", 0); 
@@ -885,14 +998,10 @@ public void OnClientPutInServer(int client)
 			TF2_SetPlayerClass(client, TFClass_Engineer);
 		}
 	}
+
 	
 	// Area Voice Chat
 	CreateTimer(0.1, Timer_GetChatClients, client, TIMER_REPEAT);
-	
-	// Start Hud
-	WelcomeHuds[client] = true;
-	CreateTimer(0.1, WelcomeHUD, client, TIMER_REPEAT);
-	CreateTimer(10.0, WelcomeHUDStop, client);
 
 	// Main hud
 	CreateTimer(0.1, HUD, client, TIMER_REPEAT);
@@ -904,7 +1013,8 @@ public void OnClientPutInServer(int client)
 	CreateTimer(0.1, Timer_AusHUD, client, TIMER_REPEAT);
 	
 	// Bank Hud
-	CreateTimer(1.0, Timer_BankHUD, client, TIMER_REPEAT);
+	CreateTimer(0.1, Timer_BankHUD, client, TIMER_REPEAT);
+	CreateTimer(1.0, BankHudRobbing, client, TIMER_REPEAT);
 	
 	// Door Hud
 	CreateTimer(0.1, Timer_DoorHUD, client, TIMER_REPEAT);
@@ -917,6 +1027,9 @@ public void OnClientPutInServer(int client)
 	
 	// Lottery Hud
 	CreateTimer(0.1, Timer_LotteryHud, client, TIMER_REPEAT);
+	
+	CreateTimer(1.0, Welcome, client);
+	
 }
 
 public void OnClientDisconnect(int client)
@@ -957,9 +1070,6 @@ public void LoadConfig(bool confreload)
 
 			if(i <= MAXPLAYERS)
 			{
-				PrintersOwned[i][0] = 0;
-				PrintersOwned[i][1] = 0;
-				PrintersOwned[i][2] = 0;
 				PrinterMoney[i] = 0;
 			}
 			
@@ -993,6 +1103,16 @@ public Action OnPlayerDeath(Handle event, char[] name, bool dontBroadcast)
 
 		Hits[attacker] = 0;
 	}
+	
+	if(UD[attacker].isRobbingBank)
+	{
+		UD[attacker].isRobbingBank = false;
+		PrintCenterTextAll("Robbery failed");
+		isBeingRobbed = false;
+		RobbingEnabled = false;
+		CreateTimer(cvarTFRP[RobberyInBetweenTime].FloatValue, ResetBank);
+	}
+	
 	return Plugin_Continue;
 }
 
@@ -1040,7 +1160,7 @@ public Action Event_Roundstart(Handle event, const char[] name, bool dontBroadca
 	}
 
 	CPrintToChatAll("{green}[TFRP]{default} Done!");
-
+	
 	CPrintToChatAll("{green}[TFRP]{default} Finding doors...");
 	SetDoors();
 	SetBank();
@@ -1057,20 +1177,10 @@ public void SavePlayerInfo(int client) //Maybe rename this function? -Squid
 {
 	// Reset arrays
 	
-	AusDrillsOwned[client] = 0;
-	AusCleanersOwned[client] = 0;
-	AusPacksOwned[client] = 0;
-	
 	DoorOwnedAmt[client] = 0;
 	DroppedItems[client] = 0;
-	WelcomeHuds[client] = false;
-	PlayingBlackjack[client] = 0;
-	BlackjackCards[client] = "none,none|none,none";
 	DeleteJobEnts(client);
 	DeleteHit(client);
-	PrintersOwned[client][0] = 0;
-	PrintersOwned[client][1] = 0;
-	PrintersOwned[client][2] = 0;
 	
 	for(int i = 0; i <= 2047; i++)
 	{
@@ -1205,7 +1315,6 @@ public Action Timer_NoExploit(Handle timer, int client)
 		if(EntOwners[i] == client && isPrinter[i] && UD[client].bGov && !StrEqual(UD[client].sJob, "Mayor"))
 		{
 			PrinterMoney[i] = 0;
-			PrintersOwned[client][PrinterTier[i]-1] = PrintersOwned[client][PrinterTier[i]-1] - 1;
 			AcceptEntityInput(i, "kill");
 			RemoveEdict(i);
 			isPrinter[i] = false;
@@ -1227,65 +1336,84 @@ public int MenuCallBackJob(Handle menuhandle, MenuAction action, int Client, int
 		char Item[20];
 		char name[48];
 		GetClientName(Client, name, sizeof(name));
-			
+		
 		GetMenuItem(menuhandle, Position, Item, sizeof(Item));
+		// See if there is already a mayor if they're switching to that job
+		bool isMayor = false;
+		
+		if(StrEqual(Item, "Mayor"))
+		{
+			for(int i = 1; i <= MaxClients; i++)
+			{
+				if(IsClientInGame(i))
+				{
+					if(StrEqual(UD[i].sJob, "Mayor"))
+					{
+						TFRP_PrintToChat(Client, "There is already a {mediumseagreen}Mayor!");
+						isMayor = true;
+					}
+				}
+			}
+		}
 		// See if their already that job.
 		if(StrEqual(UD[Client].sJob, Item)){
 			CPrintToChat(Client, "{green}[TFRP]{default} Your job is already {mediumseagreen}%s", Item);
 		}else{
-
-		// Cancel lottery if they had one running
-		if(StrEqual(UD[Client].sJob, "Mayor") && isLottery == true)
-		{
-			CPrintToChatAll("{yellow}[TFRP ADVERT]{default} Mayor switched jobs, canceling lottery and refunding participants");
-			CancelLottery();
-		}
+			if(!isMayor)
+			{
+				// Cancel lottery if they had one running
+				if(StrEqual(UD[Client].sJob, "Mayor") && isLottery == true)
+				{
+					CPrintToChatAll("{yellow}[TFRP ADVERT]{default} Mayor switched jobs, canceling lottery and refunding participants");
+					CancelLottery();
+				}
 		
-		// Find job in file and give client the rules of that job
-		Handle DB4 = CreateKeyValues("Jobs");
-		FileToKeyValues(DB4, JobPath);
+		
+				// Find job in file and give client the rules of that job
+				Handle DB4 = CreateKeyValues("Jobs");
+				FileToKeyValues(DB4, JobPath);
 
-		if(KvJumpToKey(DB4, Item, false)){
-		// Will detect if admin later
-			UD[Client].sJob = Item;
-			UD[Client].iJobSalary = KvGetNum(DB4, "Salary", 50); // If there isn't a salary it'll just be set to 50
-			char IsPoliceStr[8];
-			KvGetString(DB4, "IsGov", IsPoliceStr, sizeof(IsPoliceStr), "false");
-			if(StrEqual(IsPoliceStr, "true"))
-			{
-				UD[Client].bGov = true;
-				TF2_ChangeClientTeam(Client, TFTeam_Blue);
-			}else{
-				UD[Client].bGov = false;
-				TF2_ChangeClientTeam(Client, TFTeam_Red);
-			}
+				if(KvJumpToKey(DB4, Item, false)){
+					// Will detect if admin later
+					UD[Client].sJob = Item;
+					UD[Client].iJobSalary = KvGetNum(DB4, "Salary", 50); // If there isn't a salary it'll just be set to 50
+					char IsPoliceStr[8];
+					KvGetString(DB4, "IsGov", IsPoliceStr, sizeof(IsPoliceStr), "false");
+					if(StrEqual(IsPoliceStr, "true"))
+					{
+						UD[Client].bGov = true;
+						TF2_ChangeClientTeam(Client, TFTeam_Blue);
+					}else{
+						UD[Client].bGov = false;
+						TF2_ChangeClientTeam(Client, TFTeam_Red);
+					}
+					
+					ForcePlayerSuicide(Client);
 			
-			ForcePlayerSuicide(Client);
+					char CanOwnDoorsStr[8];
+					KvGetString(DB4, "CanOwnDoors", CanOwnDoorsStr, sizeof(CanOwnDoorsStr), "true");
+					if(StrEqual(CanOwnDoorsStr, "false"))
+					{
+						UD[Client].bOwnDoors = false;
+					} else {
+						UD[Client].bOwnDoors = true;
+					}
+					KvRewind(DB4);
+					if(cvarTFRP[AnnounceJobSwitch].BoolValue){
+						CPrintToChatAll("{green}[TFRP]{goldenrod} %s{default} set their job to {mediumseagreen}%s", name, Item);
+					}else{
+						CPrintToChat(Client, "{green}[TFRP]{default} Set your job to {mediumseagreen}%s", Item);
+					}
 			
-			char CanOwnDoorsStr[8];
-			KvGetString(DB4, "CanOwnDoors", CanOwnDoorsStr, sizeof(CanOwnDoorsStr), "true");
-			if(StrEqual(CanOwnDoorsStr, "false"))
-			{
-				UD[Client].bOwnDoors = false;
-			} else {
-				UD[Client].bOwnDoors = true;
+					// Delete entities when people change jobs
+					DeleteJobEnts(Client);
+				
+				}else{
+					CPrintToChat(Client, "{green}[TFRP]{red} ERROR: {default}Could not find job in database");
+				}
+
+				CloseHandle(DB4);
 			}
-			KvRewind(DB4);
-			if(cvarTFRP[AnnounceJobSwitch].BoolValue){
-				CPrintToChatAll("{green}[TFRP]{goldenrod} %s{default} set their job to {mediumseagreen}%s", name, Item);
-			}else{
-				CPrintToChat(Client, "{green}[TFRP]{default} Set your job to {mediumseagreen}%s", Item);
-			}
-			
-			// Delete entities when people change jobs
-			DeleteJobEnts(Client);
-
-		}else{
-			CPrintToChat(Client, "{green}[TFRP]{red} ERROR: {default}Could not find job in database");
-		}
-
-		CloseHandle(DB4);
-
 	    }
 	}else if(action == MenuAction_End)
 	{
@@ -1665,17 +1793,7 @@ public int MenuCallBackShopItems(Handle menuhandle, MenuAction action, int iClie
 			CloseHandle(menuhandle);
 		}
 	}
-	// if(action == MenuAction_Select)
-	// {
-	// 	char ItemNameShopItem[32];
 
-	// 	GetMenuItem(menuhandle, Position, ItemNameShopItem, sizeof(ItemNameShopItem));
-	// 	BuyShopMenu(Client, ItemNameShopItem);
-		
-	// } else if(action == MenuAction_End)
-	// {
-	// 	CloseHandle(menuhandle);
-	// }
 	return 0;
 }
 
@@ -1888,6 +2006,11 @@ public int MenuCallBackWarrant(Handle menuhandle, MenuAction action, int client,
 		{
 			if(IsClientInGame(i))
 			{
+				if(UD[i].bArrested)
+				{
+					TFRP_PrintToChat(client, "Player is arrested");
+					break;
+				}
 				char GetSetWarrantName[MAX_NAME_LENGTH];
 				GetClientName(i, GetSetWarrantName, sizeof(GetSetWarrantName));
 			
@@ -1966,7 +2089,7 @@ public Action PlayerSpawn(Event event, char[] name, bool dontBroadcast)
 	{
 		Arrest(-90, client);
 	}
-	
+
 	return Plugin_Continue;
 } 
 
@@ -2088,6 +2211,26 @@ public int SpawnInv(int client, char[] ent)
 				CPrintToChat(client, "{green}[TFRP]{default} Incorrect job");
 				return 0;
 			}
+			
+			// See if they reached the max
+			int getMax = KvGetNum(DB2, "Max", 2);
+			int curAmt = 0;
+			for(int i = 0; i <= 2047; i++)
+			{
+				if(EntOwners[i] == client)
+				{
+					if(StrEqual(EntItems[i], curEnt))
+					{
+						curAmt++;
+					}
+					
+				}
+			}
+			if(curAmt >= getMax)
+			{
+				TFRP_PrintToChat(client, "You've already reached the max {mediumseagreen}%d %s", getMax, curEnt);
+				return 0;
+			}
 
 			// Spawning the item
 			int EntIndex = CreateEntityByName(entClass);
@@ -2122,7 +2265,7 @@ public int SpawnInv(int client, char[] ent)
 					{
 						Angles[1]  = normalAng[1];						// override the horizontal plane
 					}
-							
+		
 					float origin[3];
 					float angles[3];
 					float vBuffer[3];
@@ -2170,7 +2313,7 @@ public int SpawnInv(int client, char[] ent)
 						FormatEx(GetItemNameEnt, sizeof(GetItemNameEnt), "%s", ent);
 						EntItems[EntIndex] = GetItemNameEnt;
 						CreateTimer(3.0, Timer_NoSpawnInPlayer, EntIndex);
-								
+					
 					}else{
 						CPrintToChat(client, "{green}[TFRP]{default} You must spawn the entity closer!");
 						RemoveEdict(EntIndex);
@@ -2208,7 +2351,7 @@ public int SpawnInv(int client, char[] ent)
 				}
 					
 				// Spawn functions for specific items
-					
+				
 				if(StrEqual(curEnt,"Australium Drill"))
 				{
 					AddAusDrill(EntIndex, client);
@@ -2227,11 +2370,20 @@ public int SpawnInv(int client, char[] ent)
 				}else if(StrEqual(curEnt, "Gold Money Printer"))
 				{
 					AddPrinter(client, EntIndex, "Gold");
-				}
-				/*else if(StrEqual(curEnt, "Blackjack Table"))
+				} else if(StrEqual(curEnt, "Bonk Mixer"))
 				{
-					SpawnBlackjackTable(client, EntIndex);
-				}*/
+					BonkMixers[EntIndex].BonkWater = 0;
+					BonkMixers[EntIndex].BonkCaesium = 0;
+					BonkMixers[EntIndex].BonkSugar = 0;
+				} else if(StrEqual(curEnt, "Bonk Canner"))
+				{
+					BonkCanners[EntIndex].BonkInCanner = 0;
+					BonkCanners[EntIndex].BonkCans = 0;
+					SDKHookEx(EntIndex, SDKHook_OnTakeDamage, BonkCannerHit);
+				} else if(StrEqual(curEnt, "Radio"))
+				{
+					PlayChannel(1, 1, EntIndex);
+				}
 				
 		
 				// Run Module Ent Input
@@ -2400,8 +2552,7 @@ public int UseItem(int client, char[] ItemUse)
 		return 0;
 	}
 	
-	
-	// Find weaponid if the item is a weapon
+
 	Handle DB2 = CreateKeyValues("Shop");
 	FileToKeyValues(DB2, ShopPath);
 
@@ -2448,6 +2599,7 @@ public int UseItem(int client, char[] ItemUse)
 		if(StrEqual(ItemTypeUse, "weapon")){
 
 			TF2Items_GiveWeapon(client, weaponid);
+			GiveItem(client, ItemUse, -1);
 			CPrintToChat(client, "{green}[TFRP]{default} Giving you {mediumseagreen}%s.", ItemUse);
 		}else if(StrEqual(ItemTypeUse, "error")){
 			CPrintToChat(client, "{green}[TFRP]{red} ERROR: {default}Could not find item type. The item has not been removed from your inventory.");
@@ -2496,6 +2648,12 @@ public int UseItem(int client, char[] ItemUse)
 	// Thief
 	} else if(StrEqual(ItemUse, "Lockpick")){
 		Lockpick(client);
+	} else if(StrEqual(ItemUse, "Carbonated Water")){
+		AddWaterBonk(client);
+	} else if (StrEqual(ItemUse, "Sugar")){
+		AddSugarBonk(client);
+	} else if (StrEqual(ItemUse, "Caesium")){
+		AddCaesiumBonk(client);
 	}
 
 	// Module item input
@@ -2860,7 +3018,6 @@ public Action Command_BUYMENU(int client, int args)
 
 public void OpenBuyMenu(int iClient)
 {
-	// This is the menu version of the buy command, supports items with spaces in their names!
 	Handle menuhandle = CreateMenu(MenuCallBackShop);
 	SetMenuTitle(menuhandle, "[TFRP] Item Shop. Balance: %d", UD[iClient].iCash);
 
@@ -3020,24 +3177,70 @@ public Action HUD(Handle timer, int client)
 	SetHudTextParams(0.010, 0.090, 1.0, 120, 56, 21, 200, 0, 6.0, 0.0, 0.0);
 	ShowSyncHudText(client, hHud3, "%s", HudSalary);
 	
-	return Plugin_Continue;
-}
-
-public Action WelcomeHUD(Handle timer, int client)
-{
-	if(!IsClientInGame(client)) return Plugin_Continue;
-	if(IsFakeClient(client)) return Plugin_Continue;
-	if(WelcomeHuds[client])
+	// I will be moving every hud to here for more optimization, but since Im adding Bonk I'll be doing that now
+	int GetHudLook = GetClientAimTarget(client, false);
+	if(GetHudLook == -1) return Plugin_Continue;
+	if(StrEqual(EntItems[GetHudLook], "Bonk Mixer"))
 	{
-		SetHudTextParams(-1.0, 0.090, 1.0, 184, 0, 46, 200, 0, 6.0, 0.0, 0.0);
-		ShowSyncHudText(client, hHud7, "Welcome to TFRP! Do /jobs to get started!");
+		char GetBonkWater[32];
+		FormatEx(GetBonkWater, sizeof(GetBonkWater), "Water: %dml", BonkMixers[GetHudLook].BonkWater*100);
+		SetHudTextParams(0.85, 0.50, 1.0, 100, 255, 100, 225, 0, 0.0, 0.0, 0.0);
+		ShowSyncHudText(client, hHud12, "%s", GetBonkWater);
+		
+		char GetBonkCaesium[32];
+		FormatEx(GetBonkCaesium, sizeof(GetBonkCaesium), "Caesium: %d", BonkMixers[GetHudLook].BonkCaesium);
+		SetHudTextParams(0.85, 0.55, 1.0, 100, 255, 100, 225, 0, 0.0, 0.0, 0.0);
+		ShowSyncHudText(client, hHud13, "%s", GetBonkCaesium);
+		
+		char GetBonkSugar[32];
+		FormatEx(GetBonkSugar, sizeof(GetBonkSugar), "Sugar: %dkg", BonkMixers[GetHudLook].BonkSugar*9);
+		SetHudTextParams(0.85, 0.60, 1.0, 100, 255, 100, 225, 0, 0.0, 0.0, 0.0);
+		ShowSyncHudText(client, hHud14, "%s", GetBonkSugar);
+		
+	} else if (StrEqual(EntItems[GetHudLook], "Bonk Canner"))
+	{
+		char GetBonkCanned[32];
+		FormatEx(GetBonkCanned, sizeof(GetBonkCanned), "Bonk: %d", BonkCanners[GetHudLook].BonkCans);
+		SetHudTextParams(0.85, 0.60, 1.0, 100, 255, 100, 225, 0, 0.0, 0.0, 0.0);
+		ShowSyncHudText(client, hHud15, "%s", GetBonkCanned);
 	}
+	if(GetHudLook <= MaxClients && IsClientInGame(GetHudLook))
+	{
+		float GetHudLookPos[3];
+		GetClientAbsOrigin(GetHudLook, GetHudLookPos);
+	
+		float GetHudClientPos[3];
+		GetClientAbsOrigin(client, GetHudClientPos);
+	
+		if(GetVectorDistance(GetHudLookPos, GetHudClientPos) <= 500)
+		{
+			
+			char GetJobLook[32];
+			FormatEx(GetJobLook, sizeof(GetJobLook), "Job: %s", UD[GetHudLook].sJob);
+			SetHudTextParams(-1.0, 0.75, 1.0, 255, 165, 56, 225, 0, 0.0, 0.0, 0.0);
+			ShowSyncHudText(client, hHud5, "%s", GetJobLook);
+		
+			// Enemy health
+			if( TF2_GetClientTeam(client) != TF2_GetClientTeam(GetHudLook) )
+			{
+				char GetNameLook[32];
+				GetClientName(GetHudLook, GetNameLook, sizeof(GetNameLook));
+				SetHudTextParams(-1.0, 0.65, 1.0, 255, 165, 56, 225, 0, 0.0, 0.0, 0.0);
+				ShowSyncHudText(client, hHud17, "%s", GetNameLook);
+				char GetEnemyHealth[32];
+				FormatEx(GetEnemyHealth, sizeof(GetEnemyHealth), "HP: %d", GetClientHealth(GetHudLook));
+				SetHudTextParams(-1.0, 0.80, 1.0, 255, 0, 0, 225, 0, 0.0, 0.0, 0.0);
+				ShowSyncHudText(client, hHud16, "%s", GetEnemyHealth);
+			}
+		}
+	}
+	
 	return Plugin_Continue;
 }
 
-public Action WelcomeHUDStop(Handle timer, int client)
+public Action Welcome(Handle timer, int client)
 {
-	WelcomeHuds[client] = false;
+	TFRP_PrintToChat(client, "Welcome to {green}TFRP!{default} Do /rphelp for more information");
 	return Plugin_Continue;
 }
 
@@ -3244,8 +3447,7 @@ public int DeleteJobEnts(int client)
 			if(!FoundJobDel)
 			{
 				// New job can't own this item, delete it
-				EntOwners[i] = 0;
-				EntItems[i] = "_no_item_";
+				TFRP_DeleteEnt(i);
 			}
 			
 			KvRewind(DB);
@@ -3462,7 +3664,6 @@ public Action OnTakeDamageAusPackage(int victim, int &attacker, int &inflictor, 
 			GiveItem(attacker, "Full Australium Package", 1);
 			TFRP_PrintToChat(attacker, "You picked up {mediumseagreen}Full Australium Package");
 			AusPacks[victim] = 0;
-			AusPacksOwned[attacker] -= 1;
 			TFRP_DeleteEnt(victim);
 		}else{
 			TFRP_PrintToChat(attacker, "There must be {mediumseagreen}5 Australium{default} in the {mediumseagreen}package{default} to pick it up");
@@ -3477,19 +3678,8 @@ public Action OnTakeDamageAusPackage(int victim, int &attacker, int &inflictor, 
 
 public int AddAusDrill(int index, int client)
 {
-	
-	if(AusDrillsOwned[client] >= AUSTRALIUM_MAX_PACKAGES)
-	{
-		CPrintToChat(client, "{green}[TFRP]{default} You already reached the max %d drills!", AUSTRALIUM_MAX_PACKAGES);
-		GiveItem(client, "Australium Drill", 1);
-		AcceptEntityInput(index, "kill");
-		RemoveEdict(index);
-		return 0;
-	}
-	
 	AusMined[index] = 0;
 	AusFuels[index] = 0;
-	AusDrillsOwned[client]++;
 
 	CreateTimer(cvarTFRP[AustraliumDrillTime].FloatValue, Timer_AusDrill, index, TIMER_REPEAT);
 	CreateTimer(1.0, Timer_AusDrillFuelTimer, index, TIMER_REPEAT);
@@ -3500,34 +3690,14 @@ public int AddAusDrill(int index, int client)
 
 public int AddAusCleaner(int index, int client)
 {
-	if(AusCleanersOwned[client] >= AUSTRALIUM_MAX_CLEANERS)
-	{
-		CPrintToChat(client, "{green}[TFRP]{default} You already reached the max %d cleaners!", AUSTRALIUM_MAX_CLEANERS);
-		GiveItem(client, "Australium Cleaner", 1);
-		AcceptEntityInput(index, "kill");
-		RemoveEdict(index);
-		return 0;
-	}
-	
 	SDKHookEx(index, SDKHook_OnTakeDamage, OnTakeDamageAusCleaner);
-	AusCleanersOwned[client]++;
 	return 0;
 }
 
 public int AddAusPackage(int index, int client)
 {
-	if(AusPacksOwned[client] >= AUSTRALIUM_MAX_PACKAGES)
-	{
-		CPrintToChat(client, "{green}[TFRP]{default} You already reached the max %d packages!", AUSTRALIUM_MAX_PACKAGES);
-		GiveItem(client, "Empty Package", 1);
-		AcceptEntityInput(index, "kill");
-		RemoveEdict(index);
-		return 0;
-	}
-
 	AusPacks[index] = 0;
 	SDKHookEx(index, SDKHook_OnTakeDamage, OnTakeDamageAusPackage);
-	AusPacksOwned[client]++;
 	return 0;
 }
 
@@ -3634,6 +3804,13 @@ public int Arrest(int client, int arrestTarget)
 		
 			CPrintToChat(arrestTarget, "{green}[TFRP]{default} You were arrested by {goldenrod}%s", copName);
 			UD[arrestTarget].bArrested = true;
+			if(UD[arrestTarget].bHasWarrent)
+			{
+				UD[arrestTarget].bHasWarrent = false;
+				TFRP_PrintToChat(client, "You were given {mediumseagreen}%d{default} for arresting a player with a warrant", cvarTFRP[WarrantReward].IntValue);
+				UD[client].iCash += cvarTFRP[WarrantReward].IntValue;
+			}
+			
 			
 			JailTimes[arrestTarget] = cvarTFRP[JailTime].FloatValue;
 			
@@ -4167,6 +4344,11 @@ public Action Command_RobBank(int client, int args)
 		return Plugin_Handled;
 	}
 	
+	if(!RobbingEnabled)
+	{
+		TFRP_PrintToChat(client, "You must wait to do the next robbery");
+		return Plugin_Handled;
+	}
 	
 	int GetBankRob = GetClientAimTarget(client, false);
 	if(GetBankRob == bankIndex)
@@ -4179,6 +4361,7 @@ public Action Command_RobBank(int client, int args)
 			char RobberName[MAX_NAME_LENGTH];
 			GetClientName(client, RobberName, sizeof(RobberName));
 			PrintCenterTextAll("%s is robbing a bank!", RobberName); 
+			UD[client].isRobbingBank = true;
 			CreateTimer(cvarTFRP[BankRobTime].FloatValue, Timer_RobBank, client);
 			isBeingRobbed = true;
 		}else{
@@ -4192,7 +4375,6 @@ public Action Command_RobBank(int client, int args)
 }
 
 
-
 public Action Timer_RobBank(Handle timer, int client)
 {
 	if(!IsClientInGame(client)) return Plugin_Continue;
@@ -4202,9 +4384,17 @@ public Action Timer_RobBank(Handle timer, int client)
 	}
 	CPrintToChat(client, "{green}[TFRP]{default} You robbed the bank and recieved {mediumseagreen}%d!", bankWorth);
 	UD[client].iCash += bankWorth;
+	UD[client].isRobbingBank = false;
 	UpdateCash(client);
 	isBeingRobbed = false;
+	RobbingEnabled = false;
+	CreateTimer(cvarTFRP[RobberyInBetweenTime].FloatValue, ResetBank);
 	return Plugin_Continue;
+}
+
+public Action ResetBank(Handle timer)
+{
+	RobbingEnabled = true;
 }
 
 // Bank HUD
@@ -4231,20 +4421,26 @@ public Action Timer_BankHUD(Handle timer, int client)
 			char BankHudWorth[32];
 			FormatEx(BankHudWorth, sizeof(BankHudWorth), "Money: %d", bankWorth);
 			
-			if(isBeingRobbed)
-			{
-				bankRobHudTime = bankRobHudTime - 1;
-				char BankHudTime[32];
-				FormatEx(BankHudTime, sizeof(BankHudTime), "Time Left: %d", bankRobHudTime);
-				SetHudTextParams(-1.0, 0.30, 1.0, 0, 255, 0, 200, 0, 6.0, 0.0, 0.0);
-				ShowSyncHudText(client, hHud5, BankHudTime);
-			}
 			SetHudTextParams(-1.0, 0.30, 1.0, 0, 255, 0, 200, 0, 6.0, 0.0, 0.0);
 			ShowSyncHudText(client, hHud6, BankHudWorth);
 		}
 	}
 	return Plugin_Continue;
 }
+
+public Action BankHudRobbing(Handle timer, int client)
+{
+	if(!IsClientInGame(client) || !UD[client].isRobbingBank) return Plugin_Continue;
+
+	bankRobHudTime += -1;
+	char GetBankRobTime[32];
+	FormatEx(GetBankRobTime, sizeof(GetBankRobTime), "Rob Time: %d", bankRobHudTime);
+	SetHudTextParams(-1.0, 0.040, 1.0, 100, 255, 100, 225, 0, 0.0, 0.0, 0.0);
+	ShowSyncHudText(client, hHud7, "%s", GetBankRobTime);
+	
+	return Plugin_Continue;
+}
+
 
 // Load bank's position
 public void SetBank()
@@ -4880,42 +5076,10 @@ public Action Command_MakeBuyableDoor(int client, int args)
 //////////////
 public int AddPrinter(int client, int printerIndex, char[] Tier)
 {
-	if(StrEqual(Tier, "Bronze"))
-	{
-		if(PrintersOwned[client][0] >= cvarTFRP[MaxPrintersT1].IntValue)
-		{
-			CPrintToChat(client, "{green}[TFRP]{default} You have already reached the max {mediumseagreen}%d Bronze Printers!", cvarTFRP[MaxPrintersT1].IntValue);
-			AcceptEntityInput(printerIndex, "kill");
-			RemoveEdict(printerIndex);
-			GiveItem(client, "Bronze Money Printer", 1);
-			return 0;
-		}
-	}else if(StrEqual(Tier, "Silver"))
-	{
-		if(PrintersOwned[client][1] >= cvarTFRP[MaxPrintersT2].IntValue)
-		{
-			CPrintToChat(client, "{green}[TFRP]{default} You have already reached the max {mediumseagreen}%d Silver Printers!", cvarTFRP[MaxPrintersT2].IntValue);
-			AcceptEntityInput(printerIndex, "kill");
-			RemoveEdict(printerIndex);
-			GiveItem(client, "Silver Money Printer", 1);
-			return 0;
-		}
-	}else if(StrEqual(Tier, "Gold"))
-	{
-		if(PrintersOwned[client][2] >= cvarTFRP[MaxPrintersT3].IntValue)
-		{
-			CPrintToChat(client, "{green}[TFRP]{default} You have already reached the max {mediumseagreen}%d Gold Printers!", cvarTFRP[MaxPrintersT3].IntValue);
-			AcceptEntityInput(printerIndex, "kill");
-			RemoveEdict(printerIndex);
-			GiveItem(client, "Gold Money Printer", 1);
-			return 0;
-		}
-	}
 	
 	if(StrEqual(Tier, "Bronze"))
 	{
 		SDKHookEx(printerIndex, SDKHook_OnTakeDamage, OnTakeDamagePrinter);
-		PrintersOwned[client][0] = PrintersOwned[client][0] + 1;
 		PrinterMoney[printerIndex] = 0;
 		PrinterTier[printerIndex] = 1;
 		CreateTimer(cvarTFRP[PrintTimeT1].FloatValue, Timer_PrinterTier1, printerIndex, TIMER_REPEAT);
@@ -4925,7 +5089,6 @@ public int AddPrinter(int client, int printerIndex, char[] Tier)
 	}else if(StrEqual(Tier, "Silver"))
 	{
 		SDKHookEx(printerIndex, SDKHook_OnTakeDamage, OnTakeDamagePrinter);
-		PrintersOwned[client][1] = PrintersOwned[client][1] + 1;
 		PrinterMoney[printerIndex] = 0;
 		PrinterTier[printerIndex] = 2;
 		CreateTimer(cvarTFRP[PrintTimeT2].FloatValue, Timer_PrinterTier2, printerIndex, TIMER_REPEAT);
@@ -4934,7 +5097,6 @@ public int AddPrinter(int client, int printerIndex, char[] Tier)
 	}else if(StrEqual(Tier, "Gold"))
 	{
 		SDKHookEx(printerIndex, SDKHook_OnTakeDamage, OnTakeDamagePrinter);
-		PrintersOwned[client][2] = PrintersOwned[client][2] + 1;
 		PrinterMoney[printerIndex] = 0;
 		PrinterTier[printerIndex] = 3;
 		CreateTimer(cvarTFRP[PrintTimeT3].FloatValue, Timer_PrinterTier3, printerIndex, TIMER_REPEAT);
@@ -5046,7 +5208,6 @@ public Action Timer_PrinterHud(Handle timer, int client)
 public int DestroyPrinter(int printerIndex)
 {
 	PrinterMoney[printerIndex] = 0;
-	PrintersOwned[EntOwners[printerIndex]][PrinterTier[printerIndex]-1] = PrintersOwned[EntOwners[printerIndex]][PrinterTier[printerIndex]-1] - 1;
 	CPrintToChat(EntOwners[printerIndex], "{green}[TFRP]{default} Your printer was destroyed!");
 	EntOwners[printerIndex] = 0;
 	AcceptEntityInput(printerIndex, "kill");
@@ -5445,19 +5606,9 @@ public Action Command_SetWarrant(int client, int args)
 
 public int SetWarrantHud(int client)
 {
-	for(int i = 1; i <= MaxClients; i++)
-	{
-		if(IsClientInGame(i))
-		{
-			char GetWarrantNameHud[MAX_NAME_LENGTH];
-			GetClientName(client, GetWarrantNameHud, sizeof(GetWarrantNameHud));
-			PrintToChat(i, "%s", GetWarrantNameHud);
-			char WarrantHud[32];
-			FormatEx(WarrantHud, sizeof(WarrantHud), "A warrant has been set on %s", GetWarrantNameHud);
-			SetHudTextParams(-1.0, 0.070, 8.0, 255, 79, 79, 200, 0, 6.0, 0.0, 0.0);
-			ShowSyncHudText(i, hHud8, "%s", WarrantHud);
-		}
-	}	
+	char GetWarrantName[MAX_NAME_LENGTH];
+	GetClientName(client, GetWarrantName, sizeof(GetWarrantName));
+	CPrintToChatAll("{green}[TFRP]{default} A warrant has been set out for %s!", GetWarrantName);
 	
 	return 0;
 }
@@ -5662,4 +5813,619 @@ public Action Command_Rotate(int client, int args)
 		TFRP_PrintToChat(client, "You don't own this entity!");
 		return Plugin_Handled;
 	}
+}
+
+// Bonk!
+// After reading up the TF2 wiki and inspecting the model, these are the ingredients that I know of
+// Ingredients: 9kg of Sugar, Radiation (Caesium), water
+
+public int AddWaterBonk(int client)
+{
+	int getBonkMixer = GetClientAimTarget(client, false);
+	if(!StrEqual(EntItems[getBonkMixer], "Bonk Mixer"))
+	{
+		TFRP_PrintToChat(client, "You must be looking at a {mediumseagreen}Bonk Mixer");
+		return 0;
+	}
+	
+	BonkMixers[getBonkMixer].BonkWater += 2;
+	TFRP_PrintToChat(client, "Added {mediumseagreen}200ml of Carbonated Water{default} to the {mediumseagreen}Bonk Mixer");
+	GiveItem(client, "Carbonated Water", -1);
+	
+	CheckStartBonk(getBonkMixer);
+	
+	return 0;
+}
+
+public int AddCaesiumBonk(int client)
+{
+	int getBonkMixer = GetClientAimTarget(client, false);
+	if(!StrEqual(EntItems[getBonkMixer], "Bonk Mixer"))
+	{
+		TFRP_PrintToChat(client, "You must be looking at a {mediumseagreen}Bonk Mixer");
+		return 0;
+	}
+	
+	BonkMixers[getBonkMixer].BonkCaesium++;
+	TFRP_PrintToChat(client, "Added {mediumseagreen}Caesium{default} to the {mediumseagreen}Bonk Mixer");
+	GiveItem(client, "Caesium", -1);
+	
+	CheckStartBonk(getBonkMixer);
+	
+	return 0;
+}
+
+public int AddSugarBonk(int client)
+{
+	int getBonkMixer = GetClientAimTarget(client, false);
+	if(!StrEqual(EntItems[getBonkMixer], "Bonk Mixer"))
+	{
+		TFRP_PrintToChat(client, "You must be looking at a {mediumseagreen}Bonk Mixer");
+		return 0;
+	}
+	
+	BonkMixers[getBonkMixer].BonkSugar++;
+	TFRP_PrintToChat(client, "Added {mediumseagreen}9kg of Sugar{default} to the {mediumseagreen}Bonk Mixer");
+	GiveItem(client, "Sugar", -1);
+	
+	CheckStartBonk(getBonkMixer);
+	
+	return 0;
+}
+
+public int CheckStartBonk(int BonkMixer)
+{
+	if(BonkMixers[BonkMixer].BonkWater < 1 || BonkMixers[BonkMixer].BonkCaesium < 1 || BonkMixers[BonkMixer].BonkSugar < 1) return 0;
+	
+	BonkMixers[BonkMixer].BonkWater += -1;
+	BonkMixers[BonkMixer].BonkCaesium += -1;
+	BonkMixers[BonkMixer].BonkSugar += -1;
+	
+	CreateTimer(cvarTFRP[BonkBrewTime].FloatValue, Timer_BonkBrew, BonkMixer);
+	return 0;
+}
+
+public Action Timer_BonkBrew(Handle timer, int BonkMixer)
+{
+	if(!StrEqual(EntItems[BonkMixer], "Bonk Mixer")) return Plugin_Continue;
+	
+	// Canner must be next to mixer
+	float BonkMixerPos[3];
+	GetEntPropVector(BonkMixer, Prop_Data, "m_vecOrigin", BonkMixerPos);
+	
+	bool foundMixer = false;
+	
+	for(int i = 0; i <= 2047; i++)
+	{
+		if(StrEqual(EntItems[i], "Bonk Canner"))
+		{
+			float GetCannerPos[3];
+			GetEntPropVector(i, Prop_Data, "m_vecOrigin", GetCannerPos);
+			if(GetVectorDistance(BonkMixerPos, GetCannerPos) <= 200)
+			{
+				EmitAmbientSound(BONK_CANNER_GOT_BONK_SOUND, GetCannerPos, SOUND_FROM_WORLD, SNDLEVEL_NORMAL, SND_NOFLAGS, SNDVOL_NORMAL, SNDPITCH_NORMAL, 0.0);
+				BonkCanners[i].BonkInCanner++;
+				
+				CreateTimer(cvarTFRP[BonkCanTime].FloatValue, Timer_BonkCanTime, i);
+				
+				foundMixer = true;
+				break;
+			}
+		}
+	}
+	
+	if(!foundMixer)
+	{
+		EmitAmbientSound(TFRP_ERROR_SOUND, BonkMixerPos, SOUND_FROM_WORLD, SNDLEVEL_NORMAL, SND_NOFLAGS, SNDVOL_NORMAL, SNDPITCH_NORMAL, 0.0);
+		TFRP_PrintToChat(EntOwners[BonkMixer], "Your {mediumseagreen}Bonk Mixer{default} made Bonk, but no {mediumseagreen}Bonk Canner{default} was found!");
+	}
+	
+	return Plugin_Continue;
+}
+
+public Action Timer_BonkCanTime(Handle timer, int BonkCanner)
+{
+	if(!StrEqual(EntItems[BonkCanner], "Bonk Canner")) return Plugin_Continue;
+	
+	float BonkCannerPos[3];
+	GetEntPropVector(BonkCanner, Prop_Data, "m_vecOrigin", BonkCannerPos);
+	
+	BonkCanners[BonkCanner].BonkCans++;
+	EmitAmbientSound(BONK_CANNER_CANNED_BONK_SOUND, BonkCannerPos, SOUND_FROM_WORLD, SNDLEVEL_NORMAL, SND_NOFLAGS, SNDVOL_NORMAL, SNDPITCH_NORMAL, 0.0);
+	
+	return Plugin_Continue;
+}
+
+
+public Action BonkCannerHit(int victim, int &attacker, int &inflictor, float &damage, int &damagetype)
+{
+	if(attacker > MaxClients || !IsClientInGame(attacker)) return Plugin_Continue;
+	
+	if(!StrEqual(UD[attacker].sJob, "Bonk Mixer"))
+	{
+		TFRP_PrintToChat(attacker, "Only {goldenrod}Bonk Mixers{default} can use this!");
+		return Plugin_Continue;
+	}
+	
+	if(BonkCanners[victim].BonkCans > 0)
+	{	
+		TFRP_PrintToChat(attacker, "Took {mediumseagreen}1 Bonk! Atomic Punch{default} from the {mediumseagreen}Bonk Canner");
+		GiveItem(attacker, "Bonk! Atomic Punch", 1);
+		BonkCanners[victim].BonkCans += -1;
+	}else{
+		TFRP_PrintToChat(attacker, "No {mediumseagreen}Bonk! Atomic Punch{default} has been canned yet!");
+	}
+	
+	return Plugin_Continue;
+}
+
+// Radio
+
+public Action Command_RadioChannel(int client, any args)
+{
+	if(client == 0)
+	{
+		PrintToServer("[TFRP] Command can only be ran in-game");
+		return Plugin_Handled;
+	}
+	
+	int curRadio = GetClientAimTarget(client, false);
+	if(curRadio == -1 || !StrEqual(EntItems[curRadio], "Radio"))
+	{
+		TFRP_PrintToChat(client, "Must be looking at a {mediumseagreen}Radio");
+		return Plugin_Handled;
+	}
+	
+	if(args != 1)
+	{
+		TFRP_PrintToChat(client, "Usage: sm_radiochannel <channel>");
+		return Plugin_Handled;
+	}
+	
+	char switchChannel[8];
+	GetCmdArg(1, switchChannel, sizeof(switchChannel));
+	StopRadio(Radios[curRadio][0], Radios[curRadio][1], curRadio);
+	PlayChannel(StringToInt(switchChannel), 1, curRadio);
+	
+	return Plugin_Handled;
+}
+
+public int PlayChannel(int channel, int soundid, int RadioEnt)
+{
+	Handle RM = CreateKeyValues("Radio");
+	FileToKeyValues(RM, RadioPath);
+	char SoundFileName[64];
+	float SoundDur = 0.0;
+	bool foundId = false;
+	
+	char getKey[32];
+	FormatEx(getKey, sizeof(getKey), "%d", channel);
+	
+	if(KvJumpToKey(RM, getKey, false))
+	{
+		int m = 0;
+		if(KvGotoFirstSubKey(RM, false))
+		{
+			do{	
+				m++;
+				if(m==soundid)
+				{
+					KvGetSectionName(RM, SoundFileName, sizeof(SoundFileName));
+					SoundDur = KvGetFloat(RM, NULL_STRING, 0.0);
+					foundId = true;
+					break;
+				}
+			} while (KvGotoNextKey(RM,false));
+		}
+	}
+	KvRewind(RM);
+	CloseHandle(RM);
+	if(foundId)
+	{
+		Radios[RadioEnt][0] = channel;
+		Radios[RadioEnt][1] = soundid;
+		float RadioPos[3];
+		GetEntPropVector(RadioEnt, Prop_Data, "m_vecOrigin", RadioPos);
+		EmitSoundToAll(SoundFileName, RadioEnt, SNDCHAN_AUTO, SNDLEVEL_NORMAL, SND_NOFLAGS, 1.000000, 100, -1, NULL_VECTOR, NULL_VECTOR, true, 0.000000);
+		CreateTimer(SoundDur, ScrollChannel, RadioEnt);
+	}else{
+		float RadioPos[3];
+		GetEntPropVector(RadioEnt, Prop_Data, "m_vecOrigin", RadioPos);
+		EmitSoundToAll(TFRP_ERROR_SOUND, RadioEnt, SNDCHAN_AUTO, SNDLEVEL_NORMAL, SND_NOFLAGS, 1.000000, 100, -1, NULL_VECTOR, NULL_VECTOR, true, 0.000000);
+		
+	}
+}
+
+public Action ScrollChannel(Handle timer, int RadioEnt)
+{
+	Radios[RadioEnt][1]++;
+	PlayChannel(Radios[RadioEnt][0], Radios[RadioEnt][1], RadioEnt);
+}
+
+public int StopRadio(int channel, int soundid, int RadioEnt)
+{
+	float RadioPos[3];
+	GetEntPropVector(RadioEnt, Prop_Data, "m_vecOrigin", RadioPos);
+	
+	Handle RM = CreateKeyValues("Radio");
+	FileToKeyValues(RM, RadioPath);
+	char SoundFileName[64];
+	bool foundId = false;
+	
+	char getKey[32];
+	FormatEx(getKey, sizeof(getKey), "%d", channel);
+	
+	if(KvJumpToKey(RM, getKey, false))
+	{
+		int m = 0;
+		if(KvGotoFirstSubKey(RM, false))
+		{
+			do{	
+				m++;
+				if(m==soundid)
+				{
+					KvGetSectionName(RM, SoundFileName, sizeof(SoundFileName));
+					foundId = true;
+					break;
+				}
+			} while (KvGotoNextKey(RM,false));
+		}
+	}
+	KvRewind(RM);
+	CloseHandle(RM);
+	if(foundId)
+	{
+		StopSound(RadioEnt, SNDCHAN_AUTO, SoundFileName);
+		PrintToServer("attempted to stop sound %s", SoundFileName);
+	}
+}
+
+// Help menu
+
+
+public int HelpMenuCB(Handle menuhandle, MenuAction action, int client, int pos)
+{
+	switch(action)
+	{
+		case MenuAction_Select:
+		{
+			switch(pos)
+			{
+				case 0:
+				{
+					OpenRPHelpCmd(client);
+				}
+				case 1:
+				{
+					OpenRPHelpInv(client);
+				}
+				case 2:
+				{
+					OpenRPHelpMM(client);
+				}
+				case 3:
+				{
+					OpenRPHelpGov(client);
+				}
+			}
+		}
+		case MenuAction_End:
+		{
+			CloseHandle(menuhandle);
+		}
+	}
+	return 0;
+}
+
+
+public Action Command_RPHelp(int client, any args)
+{
+	if(!IsClientInGame(client)) return Plugin_Handled;
+	OpenHelpMenu(client);
+	return Plugin_Handled;
+}
+
+public void OpenHelpMenu(int client)
+{
+	Handle menuhandle = CreateMenu(HelpMenuCB);
+	SetMenuTitle(menuhandle, "[TFRP] Help Menu");
+
+	AddMenuItem(menuhandle, "Commands", "Commands");
+	AddMenuItem(menuhandle, "Inventory", "Inventory");
+	AddMenuItem(menuhandle, "Making Money", "Making Money");
+	AddMenuItem(menuhandle, "Government", "Government");
+	
+	SetMenuPagination(menuhandle, 7);
+	SetMenuExitButton(menuhandle, true);
+	DisplayMenu(menuhandle, client, 250);
+}
+
+public void OpenRPHelpCmd(int client)
+{
+	Handle menuhandle = CreateMenu(HelpMenuCmdCB);
+	SetMenuTitle(menuhandle, "[TFRP] Help Menu");
+
+	AddMenuItem(menuhandle, "sm_jobs", "sm_jobs");
+	AddMenuItem(menuhandle, "sm_shop", "sm_shop");
+	AddMenuItem(menuhandle, "sm_items", "sm_items");
+	AddMenuItem(menuhandle, "sm_rotate", "sm_rotate");
+	AddMenuItem(menuhandle, "sm_rphelp", "sm_rphelp");
+	AddMenuItem(menuhandle, "sm_buydoor", "sm_buydoor");
+	AddMenuItem(menuhandle, "sm_lock", "sm_lock");
+	AddMenuItem(menuhandle, "sm_selldoor", "sm_selldoor");
+	AddMenuItem(menuhandle, "sm_givekeys", "sm_givekeys");
+	AddMenuItem(menuhandle, "sm_revokekeys", "sm_revokekeys");
+	AddMenuItem(menuhandle, "sm_givemoney", "sm_givemoney");
+	AddMenuItem(menuhandle, "sm_pickup", "sm_pickup");
+	AddMenuItem(menuhandle, "sm_placehit", "sm_placehit");
+	
+	SetMenuPagination(menuhandle, 7);
+	SetMenuExitButton(menuhandle, true);
+	DisplayMenu(menuhandle, client, 250);
+}
+
+public int HelpMenuCmdCB(Handle menuhandle, MenuAction action, int client, int pos)
+{
+	switch(action)
+	{
+		case MenuAction_Select:
+		{
+			char GetHelpCmd[32];
+			GetMenuItem(menuhandle, pos, GetHelpCmd, sizeof(GetHelpCmd));
+			
+			ClientCommand(client, GetHelpCmd);
+			
+		}
+		case MenuAction_End:
+		{
+			CloseHandle(menuhandle);
+		}
+	}
+	return 0;
+}
+
+public void OpenRPHelpInv(int client)
+{
+	Handle menuhandle = CreateMenu(HelpMenuInvCB);
+	SetMenuTitle(menuhandle, "[TFRP] Help Menu");
+
+	AddMenuItem(menuhandle, "","The inventory contains all your items. It can be accessed using /items",  ITEMDRAW_DISABLED);	
+	AddMenuItem(menuhandle, "","Items have 3 types: Ent, Item, and Weapon.", ITEMDRAW_DISABLED);
+	AddMenuItem(menuhandle, "","Entities are items that can be spawned as props", ITEMDRAW_DISABLED);
+	AddMenuItem(menuhandle, "","Items (type) are items that can be used", ITEMDRAW_DISABLED);
+	AddMenuItem(menuhandle, "","Weapons are items that can give you a weapon",ITEMDRAW_DISABLED);
+	
+	SetMenuPagination(menuhandle, 7);
+	SetMenuExitButton(menuhandle, true);
+	DisplayMenu(menuhandle, client, 250);
+}
+
+public int HelpMenuInvCB(Handle menuhandle, MenuAction action, int client, int pos)
+{
+	switch(action)
+	{
+		case MenuAction_End:
+		{
+			CloseHandle(menuhandle);
+		}
+	}
+	return 0;
+}
+
+
+public void OpenRPHelpMM(int client)
+{
+	Handle menuhandle = CreateMenu(HelpMenuMMCB);
+	SetMenuTitle(menuhandle, "[TFRP] Help Menu");
+	
+	AddMenuItem(menuhandle, "", "Each job has it's own salary", ITEMDRAW_DISABLED );
+	AddMenuItem(menuhandle, "Sandvich Making", "Sandvich Making");	
+	AddMenuItem(menuhandle, "Australium Mining", "Australium Mining");
+	AddMenuItem(menuhandle, "Bonk! Mixing", "Bonk! Mixing");
+	AddMenuItem(menuhandle, "Bank Robbing", "Bank Robbing");
+	AddMenuItem(menuhandle, "Hitman", "Hitman");
+
+	SetMenuPagination(menuhandle, 7);
+	SetMenuExitButton(menuhandle, true);
+	DisplayMenu(menuhandle, client, 250);
+}
+
+public int HelpMenuMMCB(Handle menuhandle, MenuAction action, int client, int pos)
+{
+	switch(action)
+	{
+		case MenuAction_Select:
+		{
+			switch(pos)
+			{
+				case 1:
+				{
+					OpenSandvichMakingHelp(client);
+				}
+				case 2:
+				{
+					OpenAustraliumMiningHelp(client);
+				}
+				case 3:
+				{
+					OpenBonkMixingHelp(client);
+				}
+				case 4:
+				{
+					OpenBankRobbingHelp(client);
+				}
+				case 5:
+				{
+					OpenHitmanHelp(client);
+				}
+			}
+			
+		}
+		case MenuAction_End:
+		{
+			CloseHandle(menuhandle);
+		}
+	}
+	return 0;
+}
+
+public void OpenSandvichMakingHelp(int client)
+{
+	// These are instructions to follow, so I figured it'd be easier to read if it was in chat
+	TFRP_PrintToChat(client, "How to make {mediumseagreen}Sandviches:");
+	TFRP_PrintToChat(client, "1. Open the {mediumseagreen}jobs{default} menu and select {goldenrod}Sandvich Maker");
+	TFRP_PrintToChat(client, "2. Open the {mediumseagreen}shop{default} and buy one of everything from the {mediumseagreen}Sandvich Making{default} category");
+	TFRP_PrintToChat(client, "3. Open your {mediumseagreen}inventory{default} and select the {mediumseagreen}Sandvich Table,{default} spawn it");
+	TFRP_PrintToChat(client, "4. Open your {mediumseagreen}inventory{default} and select each ingredient and use it while looking at the {mediumseagreen}Sandvich Table");
+	TFRP_PrintToChat(client, "5. When the {mediumseagreen}Sandvich{default} is done, find a {mediumseagreen}Sandvich Buyer{default} NPC, hit it, and select {mediumseagreen}Sell Sandvich");
+	TFRP_PrintToChat(client, "6. {goldenrod}Profit");
+	TFRP_PrintToChat(client, "NOTE: You can make an infinite number of sandviches at a time");
+}
+
+public void OpenAustraliumMiningHelp(int client)
+{
+	TFRP_PrintToChat(client, "How to mine {mediumseagreen}Australium:");
+	TFRP_PrintToChat(client, "1. Open the {mediumseagreen}jobs{default} menu and select {goldenrod}Australium Miner");
+	TFRP_PrintToChat(client, "2. Open the {mediumseagreen}shop{default} and buy one of everything from the {mediumseagreen}Australium Mining{default} category");
+	TFRP_PrintToChat(client, "3. Open your {mediumseagreen}inventory{default} and select the {mediumseagreen}Australium Drill,{default} spawn it");
+	TFRP_PrintToChat(client, "4. Do the same with the {mediumseagreen}Australium Cleaner");
+	TFRP_PrintToChat(client, "5. Open your {mediumseagreen}inventory{default} and select {mediumseagreen}Fuel{default} and use it while looking at the {mediumseagreen}Australium Drill");
+	TFRP_PrintToChat(client, "6. The {mediumseagreen}Australium Drill{default} will emit a noise when it has mined {mediumseagreen}Australium");
+	TFRP_PrintToChat(client, "7. When it does, hit it and you will be given {mediumseagreen}Dirty Australium");
+	TFRP_PrintToChat(client, "8. Open your {mediumseagreen}inventory{default} and use the {mediumseagreen}Dirty Australium{default} on the {mediumseagreen}Australium Cleaner");
+	TFRP_PrintToChat(client, "9. The {mediumseagreen}Australium Cleaner{default} will also emit a sound when it is done cleaning");
+	TFRP_PrintToChat(client, "10. When it does, hit it and you will be given {mediumseagreen}Australium");
+	TFRP_PrintToChat(client, "11. Open your {mediumseagreen}inventory{default} and spawn your {mediumseagreen}Empty Package");
+	TFRP_PrintToChat(client, "12. Open your {mediumseagreen}inventory{default} and use your {mediumseagreen}Australium{default} on the {mediumseagreen}Empty Package");
+	TFRP_PrintToChat(client, "13. When the package has {mediumseagreen}5 Australium{default} in it, you can pick it up by hitting it, and you will be given a {mediumseagreen}Full Australium Package");
+	TFRP_PrintToChat(client, "14. Find an {mediumseagreen}Australium Buyer{default} NPC, hit it, and select {mediumseagreen}Sell Full Australium Package");
+	TFRP_PrintToChat(client, "15. {goldenrod}Profit");
+}	
+
+public void OpenBonkMixingHelp(int client)
+{
+	TFRP_PrintToChat(client, "How to mix {mediumseagreen}Bonk! Atomic Punch");
+	TFRP_PrintToChat(client, "1. Open the {mediumseagreen}jobs{default} menu and select {goldenrod}Bonk Mixer");
+	TFRP_PrintToChat(client, "2. Open the {mediumseagreen}shop{default} and buy one of everything from the {mediumseagreen}Bonk{default} category");
+	TFRP_PrintToChat(client, "3. Open your {mediumseagreen}inventory{default} and select the {mediumseagreen}Bonk Mixer{default}, spawn it");
+	TFRP_PrintToChat(client, "4. Do the same with the {mediumseagreen}Bonk Canner,{default} make sure it is near the {mediumseagreen}Bonk Mixer");
+	TFRP_PrintToChat(client, "5. Open your {mediumseagreen}inventory{default} and use all of the ingredients on the {mediumseagreen}Bonk Mixer");
+	TFRP_PrintToChat(client, "6. When it is done mixing, it will emit a sound indicating that it has been transfered to the {mediumseagreen}Bonk Canner");
+	TFRP_PrintToChat(client, "7. When the {mediumseagreen}Bonk Canner{default} is done, it will emit a sound");
+	TFRP_PrintToChat(client, "8. When it does, hit it and you will be given {mediumseagreen}Bonk! Atomic Punch");
+	TFRP_PrintToChat(client, "9. Find a {mediumseagreen}Bonk Buyer{default} NPC, hit it, and select {mediumseagreen}Sell Bonk! Atomic Punch");
+	TFRP_PrintToChat(client, "10. {goldenrod}Profit");
+}
+
+public void OpenBankRobbingHelp(int client)
+{
+	TFRP_PrintToChat(client, "How to rob a {mediumseagreen}bank");
+	TFRP_PrintToChat(client, "1. Make sure there are atleast %d cops on (Cops are Blu)", cvarTFRP[CopsToRob].IntValue);
+	TFRP_PrintToChat(client, "2. Be prepared to defend the {mediumseagreen}vault");
+	TFRP_PrintToChat(client, "3. While looking at the {mediumseagreen}vault,{default} do /robbank");
+	TFRP_PrintToChat(client, "4. Defend the {mediumseagreen}vault until the time runs out, dying stops the robbery");
+	TFRP_PrintToChat(client, "5. {goldenrod}Mega Profit");
+}
+
+public void OpenHitmanHelp(int client)
+{
+	TFRP_PrintToChat(client, "How to {mediumseagreen}Execute Hits");
+	TFRP_PrintToChat(client, "1. Have a player do {mediumseagreen}/placehit{default} while looking at you");
+	TFRP_PrintToChat(client, "2. Kill the player that the hit is on");
+	TFRP_PrintToChat(client, "3. {goldenrod}Profit");
+}
+
+public void OpenRPHelpGov(int client)
+{
+	Handle menuhandle = CreateMenu(HelpMenuGovCB);
+	SetMenuTitle(menuhandle, "[TFRP] Help Menu");
+	
+	AddMenuItem(menuhandle, "Police", "Police");
+	AddMenuItem(menuhandle, "Police", "Mayor");
+	
+	SetMenuPagination(menuhandle, 3);
+	SetMenuExitButton(menuhandle, true);
+	DisplayMenu(menuhandle, client, 250);
+}
+
+public int HelpMenuGovCB(Handle menuhandle, MenuAction action, int client, int pos)
+{
+	switch(action)
+	{
+		case MenuAction_Select:
+		{
+			switch(pos)
+			{
+				case 0:
+				{
+					OpenPoliceHelpMenu(client);
+				}
+				case 1:
+				{
+					OpenMayorHelpMenu(client);
+				}
+			}
+		}
+		case MenuAction_End:
+		{
+			CloseHandle(menuhandle);
+		}
+	}
+	return 0;
+}
+
+public void OpenPoliceHelpMenu(int client)
+{
+	Handle menuhandle = CreateMenu(HelpMenuPoliceCB);
+	SetMenuTitle(menuhandle, "[TFRP] Help Menu");
+	
+	AddMenuItem(menuhandle, "", "Police spawn with a Big Kill and Bat", ITEMDRAW_DISABLED);
+	AddMenuItem(menuhandle, "", "All Government jobs can lock/unlock Government Offical doors", ITEMDRAW_DISABLED);
+	AddMenuItem(menuhandle, "", "To arrest players, do /arrest (It's recommended to have a bind for it)", ITEMDRAW_DISABLED);
+	AddMenuItem(menuhandle, "", "The Police Chief and Mayor have the ability to issue warrants", ITEMDRAW_DISABLED);
+	AddMenuItem(menuhandle, "", "Any officer can do /ram on a door owned by someone who has a warrant to force it open", ITEMDRAW_DISABLED);
+	
+	SetMenuPagination(menuhandle, 7);
+	SetMenuExitButton(menuhandle, true);
+	DisplayMenu(menuhandle, client, 250);
+}
+
+public int HelpMenuPoliceCB(Handle menuhandle, MenuAction action, int client, int pos)
+{
+	switch(action)
+	{
+		case MenuAction_End:
+		{
+			CloseHandle(menuhandle);
+		}
+	}
+	return 0;
+}
+
+public void OpenMayorHelpMenu(int client)
+{
+	Handle menuhandle = CreateMenu(HelpMenuMayorCB);
+	SetMenuTitle(menuhandle, "[TFRP] Help Menu");
+	
+	AddMenuItem(menuhandle, "", "The Mayor can set laws with /addlaw", ITEMDRAW_DISABLED);
+	AddMenuItem(menuhandle, "", "Laws can be removed with /deletelaw", ITEMDRAW_DISABLED);
+	AddMenuItem(menuhandle, "", "The Mayor and Police Chief can also set warrants on other players with /setwarrant", ITEMDRAW_DISABLED);
+	AddMenuItem(menuhandle, "", "If a player has a warrant, their doors can be forced open by officers using /ram", ITEMDRAW_DISABLED);
+	
+
+	SetMenuPagination(menuhandle, 7);
+	SetMenuExitButton(menuhandle, true);
+	DisplayMenu(menuhandle, client, 250);
+}
+
+public int HelpMenuMayorCB(Handle menuhandle, MenuAction action, int client, int pos)
+{
+	switch(action)
+	{
+		case MenuAction_End:
+		{
+			CloseHandle(menuhandle);
+		}
+	}
+	return 0;
 }

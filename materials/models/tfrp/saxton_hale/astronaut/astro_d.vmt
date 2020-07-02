@@ -1,0 +1,11 @@
+"VertexLitGeneric"
+{
+	"$baseTexture" "models\player\saxton_hale\astronaut/astro_D"
+	"$bumpmap" "models\player\saxton_hale\astronaut/astro_N"
+	$phong 1
+	$phongboost "1.5"
+	$phongexponent 5
+	$phongtint "[.85 .85 1]"
+	$phongfresnelranges "[.3 .65 30]"
+ 	"$blendtintbybasealpha" 1
+}
