@@ -1,0 +1,12 @@
+"Radio"
+{
+	// 	ADDING RADIO CHANNELS AND MUSIC
+	//	Example:
+	//	"1"	// Must be a number, must be in sequencial order as well
+	//	{
+	//		"items/tf_music_upgrade_machine.wave"	"60.0"	// "sound file relative to sound folder"	"sound duration"
+	//		"randomsong.mp3"	"180.0"	
+	//	}
+	//
+	
+}

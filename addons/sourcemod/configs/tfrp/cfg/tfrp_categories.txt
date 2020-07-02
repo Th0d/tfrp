@@ -7,4 +7,5 @@
 	"Black Market"	"5"
 	"Printers"	"6"
 	"Weapons"	"7"
+	"Bonk"		"8"
 }

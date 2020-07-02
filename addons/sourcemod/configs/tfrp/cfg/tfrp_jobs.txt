@@ -76,4 +76,10 @@
 		"IsGov"		"false"
 		"CanOwnDoors"		"true"
 	}
+	"Bonk Mixer"
+	{
+		"Salary"		"45"
+		"IsGov"		"false"
+		"CanOwnDoors"		"true"
+	}
 }

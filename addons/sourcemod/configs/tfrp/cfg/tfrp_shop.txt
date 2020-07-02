@@ -44,6 +44,7 @@
 	{
 		"Type"		"ent"
 		"Model"		"models/props_spytech/work_table001.mdl"
+		"Max"		"2"
 		"Price"		"500"
 		"Category"	"Sandvich Making"
 		"Job_Reqs"
@@ -55,6 +56,7 @@
 	{
 		"Type"		"ent"
 		"Model"		"models/props_hydro/water_machinery3.mdl"
+		"Max"		"2"
 		"Price"		"1500"
 		"Category"	"Australium Mining"
 		"Job_Reqs"	
@@ -76,6 +78,7 @@
 	{
 		"Type"		"ent"
 		"Model"		"models/props_hydro/water_barrel.mdl"
+		"Max"		"2"
 		"Price"		"1000"
 		"Category"	"Australium Mining"
 		"Job_Reqs"	
@@ -87,6 +90,7 @@
 	{
 		"Type"		"ent"
 		"Model"		"models/props_forest/milk_crate.mdl"
+		"Max"		"3"
 		"Price"		"75"
 		"Category"	"Australium Mining"
 		"Job_Reqs"	
@@ -116,6 +120,7 @@
 	{
 		"Type"		"ent"
 		"Model"		"models/props_lab/citizenradio.mdl"
+		"Max"		"2"
 		"Physics"	"true"
 		"Price"		"100"
 		"Category"	"Furniture"
@@ -128,6 +133,7 @@
 	{
 		"Type"		"ent"
 		"Model"		"models/props_manor/couch_01.mdl"
+		"Max"		"2"
 		"Price"		"250"
 		"Category"	"Furniture"
 		"Job_Reqs"
@@ -139,6 +145,7 @@
 	{
 		"Type"		"ent"
 		"Model"		"models/props_manor/chair_01.mdl"
+		"Max"		"2"
 		"Price"		"150"
 		"Category"	"Furniture"
 		"Job_Reqs"
@@ -150,6 +157,7 @@
 	{
 		"Type"		"ent"
 		"Model"		"models/props_medieval/bar_table.mdl"
+		"Max"		"2"
 		"Price"		"300"
 		"Category"	"Furniture"
 		"Job_Reqs"
@@ -161,6 +169,7 @@
 	{
 		"Type"		"ent"
 		"Model"		"models/props_manor/table_01.mdl"
+		"Max"		"2"
 		"Price"		"190"
 		"Category"	"Furniture"
 		"Job_Reqs"
@@ -172,6 +181,7 @@
 	{
 		"Type"		"ent"
 		"Model"		"models/props_lab/desklamp01.mdl"
+		"Max"		"2"
 		"Physics"	"true"
 		"Price"		"120"
 		"Category"	"Furniture"
@@ -276,7 +286,7 @@
 	}
 	"Flamethrower"
 	{
-		"Price"		"2500"
+		"Price"		"3000"
 		"Type"		"weapon"
 		"id"		"21"
 		"Job_Reqs"
@@ -287,7 +297,7 @@
 	}
 	"Rocket Launcher"
 	{
-		"Price"		"5000"
+		"Price"		"6000"
 		"Type"		"weapon"
 		"id"		"18"
 		"Job_Reqs"
@@ -300,7 +310,7 @@
 	{
 		"Price"		"1000000"
 		"Type"		"weapon"
-		"id"		"9018"
+		"id"		"8018"
 		"Job_Reqs"
 		{
 			"1"	"any"
@@ -313,6 +323,7 @@
 		"Price" 	"750"
 		"IsPrinter"	"true"
 		"Type"		"ent"
+		"Max"		"3"
 		"Model"		"models/props_c17/consolebox01a.mdl"
 		"Color"		"181,92:29"
 		"Category"	"Printers"
@@ -323,6 +334,7 @@
 		"Price"		"1500"
 		"IsPrinter"	"true"
 		"Type"		"ent"
+		"Max"		"3"
 		"Model"		"models/props_c17/consolebox01a.mdl"
 		"Color"		"191,191:191"
 		"Category"	"Printers"
@@ -333,6 +345,7 @@
 		"Price"		"2500"
 		"IsPrinter"	"true"
 		"Type"		"ent"
+		"Max"		"3"
 		"Model"		"models/props_c17/consolebox01a.mdl"
 		"Color"		"227,212:0"
 		"Category"	"Printers"
@@ -361,5 +374,68 @@
 		}
 		"Ammopack"	"true"
 		"APSize"	"2"
+	}
+	"Bonk Mixer"
+	{
+		"Type"		"ent"
+		"Model"		"models/tfrp/bonkmixer.mdl"
+		"Max"		"2"
+		"Price"		"1000"
+		"Category"  "Bonk"
+		"Job_Reqs"
+		{
+			"1"	"Bonk Mixer"
+		}
+	}
+	"Bonk Canner"
+	{
+		"Type"		"ent"
+		"Model"		"models/tfrp/bonkcanner.mdl"
+		"Max"		"2"
+		"Price"		"1000"
+		"Category"	"Bonk"
+		"Job_Reqs"
+		{
+			"1"	"Bonk Mixer"
+		}
+	}
+	"Carbonated Water"
+	{
+		"Price"		"125"
+		"Type"		"item"
+		"Category"	"Bonk"
+		"Job_Reqs"
+		{
+			"1"	"Bonk Mixer"
+		}
+	}
+	"Sugar"
+	{
+		"Price"		"200"
+		"Type"		"item"
+		"Category"	"Bonk"
+		"Job_Reqs"
+		{
+			"1"	"Bonk Mixer"
+		}
+	}
+	"Caesium"
+	{
+		"Price"		"500"
+		"Type"		"item"
+		"Category"	"Bonk"
+		"Job_Reqs"
+		{
+			"1"	"Bonk Mixer"
+		}
+	}
+	"Bonk! Atomic Punch"
+	{
+		"Type"		"Item"
+		"Unlisted"	"true"
+		"Job_Reqs"
+		{
+			"1"	"Bonk Mixer"
+		}
 	}
 }

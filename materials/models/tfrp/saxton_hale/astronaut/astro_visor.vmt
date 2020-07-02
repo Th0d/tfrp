@@ -1,0 +1,7 @@
+"VertexLitGeneric"
+{
+	"$baseTexture" "models\player\saxton_hale\astronaut\astro_D"
+	"$bumpmap" "models\player\saxton_hale\astronaut\astro_N"
+	"$envmap" "env_cubemap"
+ 	"$blendtintbybasealpha" 1
+}
