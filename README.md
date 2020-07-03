@@ -1,4 +1,4 @@
-TFRP v1.2.2 by Thod
+TFRP v1.3 by Thod
 
 Thank you for downloading my Team Fortress Roleplay Mod!
 All required plugins are on the AlliedModders page.
@@ -6,7 +6,7 @@ All required plugins are on the AlliedModders page.
 ___________________________________________
 [ Installation ]
 
-	1. Dump every folder from tfrp_v1.2.2 into your server's tf folder
+	1. Dump every folder from tfrp_v1.3 into your server's tf folder
 	2. Restart your server if it's running
 	3. Enter database's info (See [Configuring Database] in this file)
 	4. Configure everything to your liking (addons/sourcemod/configs/tfrp/cfg)
@@ -104,14 +104,8 @@ NPC Types can be found in tfrp_npctypes
 ___________________________________________
 [ What's New? ]
 
-v1.2.1
-Fixed new players not recieving start money
-Fixed weapons having the wrong category
-Fixed Australium Packages reaching max after being picked up
-Fixed error related to doors owned by disconnected players
-Revokekeys is now accessible
-Messages now appear on givekeys errors
-Message now appears when a government door is added
+v1.3
+
 ___________________________________________
 [  Credits  ]
 
