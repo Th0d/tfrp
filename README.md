@@ -1,4 +1,4 @@
-TFRP v1.3 by Thod
+TFRP v1.4 by Thod
 
 Thank you for downloading my Team Fortress Roleplay Mod!
 All required plugins are on the AlliedModders page.
@@ -104,7 +104,13 @@ NPC Types can be found in tfrp_npctypes
 ___________________________________________
 [ What's New? ]
 
-v1.3
+v1.4.0 - Thank you Illusion Squid for these changes
+
+*SQL fixed to have no Duplicate rows inside the inventory table.
+*Inventory fixed for the new SQL system and made so it stays open if you have more of the item.
+*Shop fixed for the new SQL system and also made easier to buy/sell multiple of 1 item.
+*Wearable weapons like backpacks, boots, shields, etc. are now also removed on spawn.
+*The targeting for admin commands is now working the same as any other sourcemod command.
 
 ___________________________________________
 [  Credits  ]
